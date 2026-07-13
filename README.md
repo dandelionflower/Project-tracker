@@ -10,15 +10,15 @@ Try it out directly in your browser with sample data. All changes are saved to y
 
 ## Features
 
-- 📊 **Real-time Dashboard**: View overall progress, overdue tasks, and status breakdown
-- 🎯 **Task Management**: Create, edit, and delete tasks with ease
-- 📈 **Progress Tracking**: Visual progress bars with percentage indicators
-- 🏷️ **Status Management**: Track tasks as Not started, In progress, Blocked, or Done
-- 🎨 **Priority Levels**: Assign High, Medium, or Low priority to each task
-- 📅 **Date Management**: Set start and due dates with overdue detection
-- 🌙 **Dark Mode**: Toggle between light and dark themes
-- 💾 **Auto-save**: Changes are automatically saved to browser's local storage
-- 📊 **Excel Export**: Export your project data to Excel with formatting
+- **Real-time Dashboard**: View overall progress, overdue tasks, and status breakdown
+- **Task Management**: Create, edit, and delete tasks with ease
+- **Progress Tracking**: Visual progress bars with percentage indicators
+- **Status Management**: Track tasks as Not started, In progress, Blocked, or Done
+- **Priority Levels**: Assign High, Medium, or Low priority to each task
+- **Date Management**: Set start and due dates with overdue detection
+- **Dark Mode**: Toggle between light and dark themes
+- **Auto-save**: Changes are automatically saved to browser's local storage
+- **Excel Export**: Export your project data to Excel with formatting
 
 ## Getting Started
 
