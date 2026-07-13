@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Project Tracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg: #F3F4F8;
+    --surface: #FFFFFF;
+    --border: #E4E6EE;
+    --ink: #14161F;
+    --ink-soft: #676C7B;
+    --ink-faint: #9DA1AE;
+    --accent: #4F46E5;
+    --accent-soft: #EEEDFD;
+    --not-started: #9CA3AF;
+    --in-progress: #2563EB;
+    --blocked: #DC2626;
+    --done: #059669;
+    --not-started-bg: #F1F2F4;
+    --in-progress-bg: #E9EFFE;
+    --blocked-bg: #FDECEC;
+    --done-bg: #E6F5EE;
+  }
+
+  [data-theme="dark"] {
+    --bg: #14161C;
+    --surface: #1C1F27;
+    --border: #2A2E38;
+    --ink: #F0F1F5;
+    --ink-soft: #A0A4B0;
+    --ink-faint: #6B6F7B;
+    --accent: #8583F0;
+    --accent-soft: #2A2A4A;
+    --not-started: #9CA3AF;
+    --in-progress: #5B8DF6;
+    --blocked: #F16060;
+    --done: #34C285;
+    --not-started-bg: #2A2C33;
+    --in-progress-bg: #1E2A48;
+    --blocked-bg: #402226;
+    --done-bg: #1B3B2E;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14161C;
+      --surface: #1C1F27;
+      --border: #2A2E38;
+      --ink: #F0F1F5;
+      --ink-soft: #A0A4B0;
+      --ink-faint: #6B6F7B;
+      --accent: #8583F0;
+      --accent-soft: #2A2A4A;
+      --not-started: #9CA3AF;
+      --in-progress: #5B8DF6;
+      --blocked: #F16060;
+      --done: #34C285;
+      --not-started-bg: #2A2C33;
+      --in-progress-bg: #1E2A48;
+      --blocked-bg: #402226;
+      --done-bg: #1B3B2E;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body { transition: background 0.15s ease, color 0.15s ease; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    margin: 0;
+    padding: 3rem 2rem;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem; gap: 1rem; flex-wrap: wrap; }
+  h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 28px;
+    margin: 0 0 6px;
+    letter-spacing: -0.02em;
+  }
+  .subtitle { font-size: 13px; color: var(--ink-soft); margin: 0; }
+  .updated { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-faint); text-align: right; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 1.25rem; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.1rem 1.3rem;
+  }
+  .card .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); margin: 0 0 8px; font-weight: 500; }
+  .card .value { font-family: 'Space Grotesk', sans-serif; font-size: 26px; font-weight: 600; margin: 0; }
+  .card.accent .value { color: var(--accent); }
+  .card.warn .value { color: var(--blocked); }
+
+  .distribution {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 1.1rem 1.3rem;
+    margin-bottom: 1.5rem;
+  }
+  .distribution .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); margin: 0 0 10px; font-weight: 500; }
+  .dist-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--not-started-bg); margin-bottom: 10px; }
+  .dist-bar div { transition: width 0.2s ease; }
+  .dist-legend { display: flex; gap: 18px; flex-wrap: wrap; }
+  .dist-legend span { font-size: 12px; color: var(--ink-soft); display: flex; align-items: center; gap: 6px; }
+  .dist-legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+  .table-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 500;
+    color: var(--ink-faint);
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  tbody tr { border-bottom: 1px solid var(--border); position: relative; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr.rail { box-shadow: inset 4px 0 0 0 var(--row-color); }
+  tbody td { padding: 8px 14px; vertical-align: middle; }
+
+  input[type="text"], input[type="date"], select {
+    width: 100%;
+    border: 1px solid transparent;
+    background: transparent;
+    padding: 6px 8px;
+    font-size: 13px;
+    font-family: 'Inter', sans-serif;
+    border-radius: 8px;
+    color: var(--ink);
+  }
+  input[type="text"]:hover, input[type="date"]:hover, select:hover { background: var(--bg); }
+  input[type="text"]:focus, input[type="date"]:focus, select:focus {
+    outline: none; background: var(--surface); border-color: var(--accent);
+  }
+  input[type="date"] { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border-radius: 999px; padding: 5px 10px 5px 8px;
+    font-size: 12px; font-weight: 500; border: none; appearance: none;
+    cursor: pointer;
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+  select.priority { font-size: 12px; font-weight: 600; padding: 6px 8px; }
+  .priority-High { color: #8B0000 ; }
+  .priority-Medium { color: #B45309; }
+  .priority-Low { color: #228B22 ; }
+
+  .overdue-date { color: var(--blocked); font-weight: 500; }
+
+  .progress-cell { display: flex; align-items: center; gap: 10px; }
+  .bar-track { flex: 1; height: 6px; border-radius: 4px; background: var(--not-started-bg); position: relative; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; background: var(--accent); }
+  input[type="range"] {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    opacity: 0; cursor: pointer; margin: 0;
+  }
+  .progress-pct { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--ink-soft); min-width: 30px; text-align: right; }
+
+  .del-btn {
+    border: none; background: transparent; color: var(--ink-faint);
+    cursor: pointer; font-size: 16px; padding: 4px 8px; border-radius: 6px;
+    line-height: 1;
+  }
+  .del-btn:hover { color: var(--blocked); background: var(--blocked-bg); }
+
+  .add-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px; font-size: 13px; color: var(--ink-soft);
+    cursor: pointer; border-top: 1px solid var(--border);
+    font-weight: 500;
+  }
+  .add-row:hover { background: var(--bg); color: var(--ink); }
+  .add-row .plus {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent-soft); color: var(--accent);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 600;
+  }
+
+  .theme-toggle {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-soft);
+    border-radius: 999px;
+    width: 34px; height: 34px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    font-size: 15px;
+  }
+  .theme-toggle:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+  .export-btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-soft);
+    border-radius: 999px;
+    height: 34px;
+    padding: 0 16px;
+    display: inline-flex; align-items: center; gap: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: 'Inter', sans-serif;
+  }
+  .export-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
+
+  .save-status {
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-family: 'JetBrains Mono', monospace;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div>
+      <h1>Project Tracker</h1>
+      <p class="subtitle">Project Tracker with Local Storage.</p>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span class="save-status" id="save-status"></span>
+      <button class="export-btn" id="export-btn">Export to Excel</button>
+      <div class="updated" id="updated"></div>
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
+    </div>
+  </header>
+
+  <div class="cards">
+    <div class="card accent">
+      <p class="label">Overall progress</p>
+      <p class="value" id="overall-progress">0%</p>
+    </div>
+    <div class="card warn">
+      <p class="label">Overdue</p>
+      <p class="value" id="overdue-count">0</p>
+    </div>
+    <div class="card">
+      <p class="label">Tasks</p>
+      <p class="value" id="task-count">0</p>
+    </div>
+  </div>
+
+  <div class="distribution">
+    <p class="label">Status breakdown</p>
+    <div class="dist-bar" id="dist-bar"></div>
+    <div class="dist-legend" id="dist-legend"></div>
+  </div>
+
+  <div class="table-card">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:22%">Task</th>
+          <th style="width:12%">Owner</th>
+          <th style="width:14%">Status</th>
+          <th style="width:8%">Priority</th>
+          <th style="width:11%">Start</th>
+          <th style="width:11%">Due</th>
+          <th style="width:22%">Progress</th>
+          <th style="width:4%"></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div class="add-row" id="add-row"><span class="plus">+</span> Add task</div>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
