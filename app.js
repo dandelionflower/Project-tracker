@@ -1,6 +1,7 @@
 const CATEGORY_COLORS = ["#4F46E5", "#0EA5E9", "#D97706", "#DB2777", "#059669", "#7C3AED", "#DC2626", "#0891B2"];
 
 let categories = loadCategories();
+let activities = loadActivities();
 
 function loadCategories() {
   try {
@@ -14,6 +15,30 @@ function saveCategories() {
   try {
     localStorage.setItem('project-tracker-categories', JSON.stringify(categories));
   } catch (e) {}
+}
+
+function loadActivities() {
+  try {
+    const saved = localStorage.getItem('project-tracker-activities');
+    if (saved) return JSON.parse(saved);
+  } catch (e) {}
+  return [];
+}
+
+function saveActivities() {
+  try {
+    localStorage.setItem('project-tracker-activities', JSON.stringify(activities));
+  } catch (e) {}
+}
+
+function logActivity(message) {
+  const now = new Date();
+  const timestamp = now.toISOString();
+  const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  activities.unshift({ timestamp, time, message });
+  if (activities.length > 100) activities.pop();
+  saveActivities();
+  renderActivityFeed();
 }
 
 const STATUS = {
@@ -58,8 +83,6 @@ function saveTasks() {
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
-// View state — search/sort/filter/expanded panels are transient UI state,
-// not persisted, and don't touch the underlying tasks array or its indices.
 let searchQuery = '';
 let sortMode = 'none';
 let overdueOnly = false;
@@ -86,12 +109,128 @@ function sortIndices(indices) {
   return arr;
 }
 
+function renderGanttChart() {
+  const ganttEl = document.getElementById('gantt-chart');
+  if (!ganttEl) return;
+  ganttEl.innerHTML = '';
+
+  const tasksWithDates = tasks.filter(t => t.start && t.due);
+  if (!tasksWithDates.length) {
+    ganttEl.innerHTML = '<p style="padding: 12px; color: var(--ink-faint); font-size: 12px;">No tasks with dates to display.</p>';
+    return;
+  }
+
+  const allDates = tasksWithDates.flatMap(t => [t.start, t.due]);
+  const minDate = new Date(Math.min(...allDates.map(d => new Date(d))));
+  const maxDate = new Date(Math.max(...allDates.map(d => new Date(d))));
+  const dayCount = Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24)) + 1;
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', tasksWithDates.length * 30 + 60);
+  svg.setAttribute('style', 'font-family: Inter, sans-serif;');
+
+  const labelWidth = 200;
+  const chartLeft = labelWidth + 20;
+  const chartWidth = Math.max(800, dayCount * 8);
+  const totalWidth = chartLeft + chartWidth + 20;
+  svg.setAttribute('viewBox', `0 0 ${totalWidth} ${tasksWithDates.length * 30 + 60}`);
+
+  // Header
+  const headerBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  headerBg.setAttribute('width', totalWidth);
+  headerBg.setAttribute('height', 30);
+  headerBg.setAttribute('fill', 'var(--bg)');
+  svg.appendChild(headerBg);
+
+  const headerText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  headerText.setAttribute('x', chartLeft + 10);
+  headerText.setAttribute('y', 20);
+  headerText.setAttribute('font-size', '12');
+  headerText.setAttribute('font-weight', '600');
+  headerText.setAttribute('fill', 'var(--ink-soft)');
+  headerText.textContent = minDate.toLocaleDateString() + ' to ' + maxDate.toLocaleDateString();
+  svg.appendChild(headerText);
+
+  // Bars
+  tasksWithDates.forEach((t, idx) => {
+    const y = 40 + idx * 30;
+    const startDate = new Date(t.start);
+    const dueDate = new Date(t.due);
+    const startOffset = Math.ceil((startDate - minDate) / (1000 * 60 * 60 * 24));
+    const duration = Math.ceil((dueDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+    const barX = chartLeft + startOffset * 8;
+    const barWidth = Math.max(duration * 8, 20);
+
+    // Label
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', 10);
+    label.setAttribute('y', y + 18);
+    label.setAttribute('font-size', '11');
+    label.setAttribute('fill', 'var(--ink)');
+    label.textContent = t.task.substring(0, 25);
+    svg.appendChild(label);
+
+    // Bar
+    const bar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bar.setAttribute('x', barX);
+    bar.setAttribute('y', y + 6);
+    bar.setAttribute('width', barWidth);
+    bar.setAttribute('height', 16);
+    bar.setAttribute('fill', STATUS[t.status]);
+    bar.setAttribute('opacity', t.status === 'Done' ? '0.6' : '1');
+    bar.setAttribute('rx', '4');
+    svg.appendChild(bar);
+
+    // Progress indicator
+    if (t.progress > 0 && t.progress < 100) {
+      const progressBar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      progressBar.setAttribute('x', barX);
+      progressBar.setAttribute('y', y + 6);
+      progressBar.setAttribute('width', (barWidth * t.progress) / 100);
+      progressBar.setAttribute('height', 16);
+      progressBar.setAttribute('fill', STATUS[t.status]);
+      progressBar.setAttribute('opacity', '0.3');
+      progressBar.setAttribute('rx', '4');
+      svg.appendChild(progressBar);
+    }
+  });
+
+  ganttEl.appendChild(svg);
+}
+
+function renderActivityFeed() {
+  const feedEl = document.getElementById('activity-feed');
+  if (!feedEl) return;
+  feedEl.innerHTML = '';
+
+  if (!activities.length) {
+    feedEl.innerHTML = '<p style="padding: 12px; color: var(--ink-faint); font-size: 12px;">No activity yet.</p>';
+    return;
+  }
+
+  activities.slice(0, 30).forEach(act => {
+    const item = document.createElement('div');
+    item.style.cssText = 'padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px;';
+    
+    const msg = document.createElement('span');
+    msg.style.cssText = 'font-size: 12px; color: var(--ink-soft); flex: 1;';
+    msg.textContent = act.message;
+    
+    const time = document.createElement('span');
+    time.style.cssText = 'font-family: JetBrains Mono, monospace; font-size: 11px; color: var(--ink-faint); white-space: nowrap;';
+    time.textContent = act.time;
+    
+    item.appendChild(msg);
+    item.appendChild(time);
+    feedEl.appendChild(item);
+  });
+}
+
 function render() {
   const rowsEl = document.getElementById('rows');
   rowsEl.innerHTML = '';
 
-  // Group task indices by category, keeping categories order first,
-  // then any leftover/uncategorized tasks in a final bucket.
   const groups = categories.map(c => ({ name: c, indices: [], deletable: true }));
   const other = { name: "Uncategorized", indices: [], deletable: false };
   tasks.forEach((t, i) => {
@@ -207,27 +346,30 @@ function render() {
   updateSummary();
 
   rowsEl.querySelectorAll('input, select').forEach(el => {
-    if (!el.dataset.f) return; // subtask controls etc. are wired separately below
+    if (!el.dataset.f) return;
     el.addEventListener('input', e => {
       const i = Number(e.target.dataset.i), f = e.target.dataset.f;
+      const oldValue = tasks[i][f];
       tasks[i][f] = f === 'progress' ? Number(e.target.value) : e.target.value;
+      
+      // Log activity
+      if (f === 'status') {
+        logActivity(`Task "${tasks[i].task}" status changed to ${tasks[i][f]}`);
+      } else if (f === 'progress') {
+        logActivity(`Task "${tasks[i].task}" progress updated to ${tasks[i][f]}%`);
+      }
+      
       saveTasks();
 
-      // 'category' changes which group a row belongs to, so it's the
-      // one field that still needs a full rebuild rather than a patch.
       if (f === 'category') {
         render();
         return;
       }
 
-      // Patch only what actually needs to change, instead of
-      // rebuilding the whole table (which would steal focus mid-typing).
       const tr = e.target.closest('tr');
       const t = tasks[i];
 
       if (f === 'task' || f === 'owner') {
-        // Nothing else on screen depends on these — data is already
-        // correct via the input's own value, no DOM patch needed.
         return;
       }
 
@@ -236,17 +378,18 @@ function render() {
         e.target.style.background = STATUS_BG[t.status];
         e.target.style.color = STATUS[t.status];
         updateSummary();
+        renderGanttChart();
       }
 
       if (f === 'priority') {
         e.target.className = `priority priority-${t.priority}`;
-        // don't touch updateSummary — priority isn't in the dashboard
       }
 
       if (f === 'due') {
         const isOverdue = t.due && t.due < todayStr() && t.status !== 'Done';
         e.target.classList.toggle('overdue-date', isOverdue);
         updateSummary();
+        renderGanttChart();
       }
 
       if (f === 'progress') {
@@ -254,13 +397,16 @@ function render() {
         cell.querySelector('.bar-fill').style.width = t.progress + '%';
         cell.querySelector('.progress-pct').textContent = t.progress + '%';
         updateSummary();
+        renderGanttChart();
       }
     });
   });
 
   rowsEl.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', e => {
+      const taskName = tasks[Number(e.currentTarget.dataset.i)].task;
       tasks.splice(Number(e.currentTarget.dataset.i), 1);
+      logActivity(`Task "${taskName}" deleted`);
       render();
       saveTasks();
     });
@@ -277,6 +423,7 @@ function render() {
 
       tasks.forEach(t => { if (t.category === name) t.category = undefined; });
       categories = categories.filter(c => c !== name);
+      logActivity(`Category "${name}" deleted`);
       saveCategories();
       saveTasks();
       render();
@@ -295,6 +442,7 @@ function render() {
     cb.addEventListener('change', e => {
       const i = Number(e.target.dataset.i), si = Number(e.target.dataset.si);
       tasks[i].subtasks[si].done = e.target.checked;
+      logActivity(`Subtask "${tasks[i].subtasks[si].text}" ${e.target.checked ? 'completed' : 'unchecked'}`);
       saveTasks();
       render();
     });
@@ -303,7 +451,9 @@ function render() {
   rowsEl.querySelectorAll('[data-action="delete-subtask"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i), si = Number(e.currentTarget.dataset.si);
+      const subtaskText = tasks[i].subtasks[si].text;
       tasks[i].subtasks.splice(si, 1);
+      logActivity(`Subtask "${subtaskText}" deleted`);
       saveTasks();
       render();
     });
@@ -314,6 +464,7 @@ function render() {
     if (!text) return;
     if (!tasks[i].subtasks) tasks[i].subtasks = [];
     tasks[i].subtasks.push({ text, done: false });
+    logActivity(`Subtask added to "${tasks[i].task}"`);
     saveTasks();
     render();
   }
@@ -421,12 +572,14 @@ document.getElementById('add-category').addEventListener('click', () => {
     return;
   }
   categories.push(trimmed);
+  logActivity(`Category "${trimmed}" created`);
   saveCategories();
   render();
 });
 
 document.getElementById('add-row').addEventListener('click', () => {
   tasks.push({ task: 'New task', owner: '', status: 'Not started', priority: 'Medium', category: categories[0], start: todayStr(), due: todayStr(), progress: 0 });
+  logActivity('New task created');
   render();
   saveTasks();
 });
@@ -453,9 +606,12 @@ document.getElementById('export-btn').addEventListener('click', () => {
   XLSX.utils.book_append_sheet(wb, ws, 'Tracker');
   const stamp = todayStr();
   XLSX.writeFile(wb, `project_tracker_backup_${stamp}.xlsx`);
+  logActivity('Project data exported to Excel');
 });
 
 render();
+renderGanttChart();
+renderActivityFeed();
 
 const toggleBtn = document.getElementById('theme-toggle');
 function currentIsDark() {
