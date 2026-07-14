@@ -6,6 +6,15 @@ function tagColor(tag) {
   return CATEGORY_COLORS[hash % CATEGORY_COLORS.length];
 }
 
+function getDependencyTasks(t) {
+  const ids = t.dependsOn || [];
+  return ids.map(id => tasks.find(x => x.id === id)).filter(Boolean);
+}
+
+function isBlocked(t) {
+  return getDependencyTasks(t).some(dep => dep.status !== 'Done');
+}
+
 let categories = loadCategories();
 let activities = loadActivities();
 
@@ -161,8 +170,11 @@ function refreshTagFilterOptions() {
 let searchQuery = '';
 let sortMode = 'none';
 let overdueOnly = false;
+let starredOnly = false;
 let tagFilter = '';
 const expandedTasks = new Set();
+const expandedDeps = new Set();
+const expandedNotes = new Set();
 let dragSrcTaskId = null;
 const selectedTaskIds = new Set();
 
@@ -176,7 +188,8 @@ function taskMatchesFilters(t) {
   const isOverdue = t.due && t.due < todayStr() && t.status !== 'Done';
   const matchesOverdue = !overdueOnly || isOverdue;
   const matchesTag = !tagFilter || tags.includes(tagFilter);
-  return matchesSearch && matchesOverdue && matchesTag;
+  const matchesStarred = !starredOnly || t.starred;
+  return matchesSearch && matchesOverdue && matchesTag && matchesStarred;
 }
 
 function sortIndices(indices) {
@@ -189,6 +202,9 @@ function sortIndices(indices) {
   } else if (sortMode === 'progress') {
     arr.sort((a, b) => tasks[a].progress - tasks[b].progress);
   }
+  // Starred tasks always float to the top of their group, regardless of
+  // which secondary sort is active — quick access to what matters most.
+  arr.sort((a, b) => (tasks[b].starred ? 1 : 0) - (tasks[a].starred ? 1 : 0));
   return arr;
 }
 
@@ -365,8 +381,10 @@ function render() {
         <td>
           <div class="task-cell">
             <div class="task-cell-row">
+              <button class="star-toggle ${t.starred ? 'starred' : ''}" data-i="${i}" data-action="toggle-star" title="${t.starred ? 'Unstar' : 'Star'} this task" aria-label="Toggle star">${t.starred ? '★' : '☆'}</button>
               <span class="drag-handle" draggable="true" data-i="${i}" title="Drag to reorder">⠿</span>
               <input type="text" value="${t.task}" data-i="${i}" data-f="task" />
+              ${isBlocked(t) ? '<span class="blocked-badge" title="Waiting on incomplete dependencies">🔒 Blocked</span>' : ''}
             </div>
             <div class="task-cell-tags">
               <button class="subtask-toggle ${isExpanded ? 'open' : ''}" data-i="${i}" data-action="toggle-subtasks">
@@ -374,6 +392,12 @@ function render() {
               </button>
               <button class="recurring-toggle ${t.recurring ? 'on' : ''}" data-i="${i}" data-action="toggle-recurring" title="Repeat weekly after completion">
                 🔁 ${t.recurring ? 'Repeats weekly' : 'Make recurring'}
+              </button>
+              <button class="deps-toggle ${expandedDeps.has(i) ? 'open' : ''}" data-i="${i}" data-action="toggle-deps">
+                🔗 ${(t.dependsOn || []).length ? `${(t.dependsOn || []).length} dependenc${(t.dependsOn || []).length === 1 ? 'y' : 'ies'}` : '+ dependency'}
+              </button>
+              <button class="notes-toggle ${(t.notes || '').trim() ? 'has-notes' : ''}" data-i="${i}" data-action="toggle-notes">
+                📝 ${(t.notes || '').trim() ? 'Notes' : '+ notes'}
               </button>
             </div>
             <div class="task-tags-row">
@@ -442,6 +466,47 @@ function render() {
         `;
         rowsEl.appendChild(panel);
       }
+
+      if (expandedDeps.has(i)) {
+        const deps = getDependencyTasks(t);
+        const otherTasks = tasks.filter(x => x.id !== t.id && !(t.dependsOn || []).includes(x.id));
+        const panel = document.createElement('tr');
+        panel.className = 'subtask-panel-row';
+        panel.innerHTML = `
+          <td colspan="10">
+            <div class="subtask-panel">
+              ${deps.length ? deps.map(dep => `
+                <div class="subtask-item">
+                  <span class="dep-status-dot" style="background:${STATUS[dep.status]};"></span>
+                  <span class="${dep.status === 'Done' ? 'subtask-done' : ''}">${dep.task} <span class="dep-status-label">(${dep.status})</span></span>
+                  <button data-i="${i}" data-dep-id="${dep.id}" data-action="remove-dependency" aria-label="Remove dependency">&times;</button>
+                </div>
+              `).join('') : '<span class="no-deps-msg">No dependencies — this task is not blocked by anything.</span>'}
+              <div class="subtask-add">
+                <select class="dependency-select" data-i="${i}">
+                  <option value="">Add a dependency…</option>
+                  ${otherTasks.map(x => `<option value="${x.id}">${x.task}</option>`).join('')}
+                </select>
+                <button data-i="${i}" data-action="add-dependency">Add</button>
+              </div>
+            </div>
+          </td>
+        `;
+        rowsEl.appendChild(panel);
+      }
+
+      if (expandedNotes.has(i)) {
+        const panel = document.createElement('tr');
+        panel.className = 'subtask-panel-row';
+        panel.innerHTML = `
+          <td colspan="10">
+            <div class="subtask-panel">
+              <textarea class="notes-textarea" data-i="${i}" data-f="notes" placeholder="Add notes, context, or a running log for this task…">${t.notes || ''}</textarea>
+            </div>
+          </td>
+        `;
+        rowsEl.appendChild(panel);
+      }
     });
   });
 
@@ -458,11 +523,25 @@ function render() {
     });
   });
 
-  rowsEl.querySelectorAll('input, select').forEach(el => {
+  rowsEl.querySelectorAll('input, select, textarea').forEach(el => {
     if (!el.dataset.f) return;
     el.addEventListener('input', e => {
       const i = Number(e.target.dataset.i), f = e.target.dataset.f;
       const oldValue = tasks[i][f];
+
+      // Warn before marking a blocked task Done — dependencies aren't
+      // finished yet. This is a soft warning, not a hard block.
+      if (f === 'status' && e.target.value === 'Done' && oldValue !== 'Done' && isBlocked(tasks[i])) {
+        const incomplete = getDependencyTasks(tasks[i]).filter(d => d.status !== 'Done').map(d => d.task);
+        const proceed = confirm(
+          `"${tasks[i].task}" still depends on incomplete task${incomplete.length === 1 ? '' : 's'}: ${incomplete.join(', ')}.\n\nMark as Done anyway?`
+        );
+        if (!proceed) {
+          e.target.value = oldValue;
+          return;
+        }
+      }
+
       tasks[i][f] = f === 'progress' ? Number(e.target.value) : e.target.value;
       
       // Log activity
@@ -482,25 +561,21 @@ function render() {
       const tr = e.target.closest('tr');
       const t = tasks[i];
 
-      if (f === 'task' || f === 'owner') {
+      if (f === 'task' || f === 'owner' || f === 'notes') {
         return;
       }
 
       if (f === 'status') {
-        tr.style.setProperty('--row-color', STATUS[t.status]);
-        e.target.style.background = STATUS_BG[t.status];
-        e.target.style.color = STATUS[t.status];
-        updateSummary();
-        renderGanttChart();
-
         if (t.status === 'Done' && oldValue !== 'Done' && t.recurring) {
           const clone = createRecurringClone(t);
           tasks.push(clone);
           logActivity(`Recurring task "${clone.task}" scheduled for next cycle`);
           saveTasks();
-          render();
-          renderGanttChart();
         }
+        updateSummary();
+        renderGanttChart();
+        render(); // full re-render: other rows may depend on this task's status
+        return;
       }
 
       if (f === 'priority') {
@@ -568,8 +643,10 @@ function render() {
 
   rowsEl.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', e => {
-      const taskName = tasks[Number(e.currentTarget.dataset.i)].task;
+      const deletedTask = tasks[Number(e.currentTarget.dataset.i)];
+      const taskName = deletedTask.task;
       tasks.splice(Number(e.currentTarget.dataset.i), 1);
+      tasks.forEach(t => { if (t.dependsOn) t.dependsOn = t.dependsOn.filter(id => id !== deletedTask.id); });
       logActivity(`Task "${taskName}" deleted`);
       render();
       saveTasks();
@@ -608,6 +685,65 @@ function render() {
       const i = Number(e.currentTarget.dataset.i);
       tasks[i].recurring = !tasks[i].recurring;
       logActivity(`Task "${tasks[i].task}" ${tasks[i].recurring ? 'set to repeat weekly' : 'no longer recurring'}`);
+      saveTasks();
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="toggle-star"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      tasks[i].starred = !tasks[i].starred;
+      logActivity(`Task "${tasks[i].task}" ${tasks[i].starred ? 'starred' : 'unstarred'}`);
+      saveTasks();
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="toggle-deps"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      if (expandedDeps.has(i)) expandedDeps.delete(i); else expandedDeps.add(i);
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="toggle-notes"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      if (expandedNotes.has(i)) expandedNotes.delete(i); else expandedNotes.add(i);
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="add-dependency"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      const select = e.currentTarget.parentElement.querySelector('.dependency-select');
+      const depId = select.value;
+      if (!depId) return;
+      if (!tasks[i].dependsOn) tasks[i].dependsOn = [];
+      if (tasks[i].dependsOn.includes(depId)) return;
+
+      // Block direct circular dependencies (A depends on B, B depends on A).
+      const depTask = tasks.find(x => x.id === depId);
+      if (depTask && (depTask.dependsOn || []).includes(tasks[i].id)) {
+        alert(`"${depTask.task}" already depends on this task — that would create a circular dependency.`);
+        return;
+      }
+
+      tasks[i].dependsOn.push(depId);
+      logActivity(`"${tasks[i].task}" now depends on "${depTask ? depTask.task : 'a task'}"`);
+      saveTasks();
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="remove-dependency"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      const depId = e.currentTarget.dataset.depId;
+      tasks[i].dependsOn = (tasks[i].dependsOn || []).filter(id => id !== depId);
       saveTasks();
       render();
     });
@@ -764,6 +900,11 @@ document.getElementById('overdue-only').addEventListener('change', e => {
   render();
 });
 
+document.getElementById('starred-only').addEventListener('change', e => {
+  starredOnly = e.target.checked;
+  render();
+});
+
 document.getElementById('tag-filter').addEventListener('change', e => {
   tagFilter = e.target.value;
   render();
@@ -795,6 +936,7 @@ document.getElementById('bulk-delete-btn').addEventListener('click', () => {
   if (!count) return;
   if (!confirm(`Delete ${count} task${count === 1 ? '' : 's'}? This can't be undone.`)) return;
   tasks = tasks.filter(t => !selectedTaskIds.has(t.id));
+  tasks.forEach(t => { if (t.dependsOn) t.dependsOn = t.dependsOn.filter(id => !selectedTaskIds.has(id)); });
   logActivity(`Deleted ${count} task${count === 1 ? '' : 's'} (bulk action)`);
   selectedTaskIds.clear();
   saveTasks();
@@ -852,10 +994,11 @@ document.getElementById('export-btn').addEventListener('click', () => {
     Tags: (t.tags || []).join(', '),
     Start: t.start || '',
     Due: t.due,
-    "% complete": t.progress / 100
+    "% complete": t.progress / 100,
+    Notes: t.notes || ''
   }));
   const ws = XLSX.utils.json_to_sheet(data);
-  ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+  ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 40 }];
   const range = XLSX.utils.decode_range(ws['!ref']);
   for (let r = 1; r <= range.e.r; r++) {
     const cell = ws[XLSX.utils.encode_cell({ r, c: 8 })];
