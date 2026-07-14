@@ -1,8 +1,6 @@
 const CATEGORY_COLORS = ["#4F46E5", "#0EA5E9", "#D97706", "#DB2777", "#059669", "#7C3AED", "#DC2626", "#0891B2"];
-
 let categories = loadCategories();
 let activities = loadActivities();
-
 function loadCategories() {
   try {
     const saved = localStorage.getItem('project-tracker-categories');
@@ -10,13 +8,11 @@ function loadCategories() {
   } catch (e) {}
   return [];
 }
-
 function saveCategories() {
   try {
     localStorage.setItem('project-tracker-categories', JSON.stringify(categories));
   } catch (e) {}
 }
-
 function loadActivities() {
   try {
     const saved = localStorage.getItem('project-tracker-activities');
@@ -24,13 +20,11 @@ function loadActivities() {
   } catch (e) {}
   return [];
 }
-
 function saveActivities() {
   try {
     localStorage.setItem('project-tracker-activities', JSON.stringify(activities));
   } catch (e) {}
 }
-
 function logActivity(message) {
   const now = new Date();
   const timestamp = now.toISOString();
@@ -40,7 +34,6 @@ function logActivity(message) {
   saveActivities();
   renderActivityFeed();
 }
-
 const STATUS = {
   "Not started": "var(--not-started)",
   "In progress": "var(--in-progress)",
@@ -53,9 +46,7 @@ const STATUS_BG = {
   "Blocked":     "var(--blocked-bg)",
   "Done":        "var(--done-bg)"
 };
-
 let tasks = loadTasks();
-
 function loadTasks() {
   try {
     const saved = localStorage.getItem('project-tracker-tasks');
@@ -68,7 +59,6 @@ function loadTasks() {
     { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", start: "2026-07-05", due: "2026-07-10", progress: 20 }
   ];
 }
-
 function saveTasks() {
   try {
     localStorage.setItem('project-tracker-tasks', JSON.stringify(tasks));
@@ -80,14 +70,11 @@ function saveTasks() {
     }
   } catch (e) {}
 }
-
 function todayStr() { return new Date().toISOString().slice(0, 10); }
-
 let searchQuery = '';
 let sortMode = 'none';
 let overdueOnly = false;
 const expandedTasks = new Set();
-
 function taskMatchesFilters(t) {
   const q = searchQuery.trim().toLowerCase();
   const matchesSearch = !q || t.task.toLowerCase().includes(q) || (t.owner || '').toLowerCase().includes(q);
@@ -95,7 +82,6 @@ function taskMatchesFilters(t) {
   const matchesOverdue = !overdueOnly || isOverdue;
   return matchesSearch && matchesOverdue;
 }
-
 function sortIndices(indices) {
   const arr = [...indices];
   const priorityRank = { High: 0, Medium: 1, Low: 2 };
@@ -108,41 +94,34 @@ function sortIndices(indices) {
   }
   return arr;
 }
-
 function renderGanttChart() {
   const ganttEl = document.getElementById('gantt-chart');
   if (!ganttEl) return;
   ganttEl.innerHTML = '';
-
   const tasksWithDates = tasks.filter(t => t.start && t.due);
   if (!tasksWithDates.length) {
     ganttEl.innerHTML = '<p style="padding: 12px; color: var(--ink-faint); font-size: 12px;">No tasks with dates to display.</p>';
     return;
   }
-
   const allDates = tasksWithDates.flatMap(t => [t.start, t.due]);
   const minDate = new Date(Math.min(...allDates.map(d => new Date(d))));
   const maxDate = new Date(Math.max(...allDates.map(d => new Date(d))));
   const dayCount = Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24)) + 1;
-
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('width', '100%');
   svg.setAttribute('height', tasksWithDates.length * 30 + 60);
   svg.setAttribute('style', 'font-family: Inter, sans-serif;');
-
   const labelWidth = 200;
   const chartLeft = labelWidth + 20;
   const chartWidth = Math.max(800, dayCount * 8);
   const totalWidth = chartLeft + chartWidth + 20;
   svg.setAttribute('viewBox', `0 0 ${totalWidth} ${tasksWithDates.length * 30 + 60}`);
-
   // Header
   const headerBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
   headerBg.setAttribute('width', totalWidth);
   headerBg.setAttribute('height', 30);
   headerBg.setAttribute('fill', 'var(--bg)');
   svg.appendChild(headerBg);
-
   const headerText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
   headerText.setAttribute('x', chartLeft + 10);
   headerText.setAttribute('y', 20);
@@ -151,7 +130,6 @@ function renderGanttChart() {
   headerText.setAttribute('fill', 'var(--ink-soft)');
   headerText.textContent = minDate.toLocaleDateString() + ' to ' + maxDate.toLocaleDateString();
   svg.appendChild(headerText);
-
   // Bars
   tasksWithDates.forEach((t, idx) => {
     const y = 40 + idx * 30;
@@ -161,7 +139,6 @@ function renderGanttChart() {
     const duration = Math.ceil((dueDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
     const barX = chartLeft + startOffset * 8;
     const barWidth = Math.max(duration * 8, 20);
-
     // Label
     const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     label.setAttribute('x', 10);
@@ -170,7 +147,6 @@ function renderGanttChart() {
     label.setAttribute('fill', 'var(--ink)');
     label.textContent = t.task.substring(0, 25);
     svg.appendChild(label);
-
     // Bar
     const bar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     bar.setAttribute('x', barX);
@@ -181,7 +157,6 @@ function renderGanttChart() {
     bar.setAttribute('opacity', t.status === 'Done' ? '0.6' : '1');
     bar.setAttribute('rx', '4');
     svg.appendChild(bar);
-
     // Progress indicator
     if (t.progress > 0 && t.progress < 100) {
       const progressBar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -195,20 +170,16 @@ function renderGanttChart() {
       svg.appendChild(progressBar);
     }
   });
-
   ganttEl.appendChild(svg);
 }
-
 function renderActivityFeed() {
   const feedEl = document.getElementById('activity-feed');
   if (!feedEl) return;
   feedEl.innerHTML = '';
-
   if (!activities.length) {
     feedEl.innerHTML = '<p style="padding: 12px; color: var(--ink-faint); font-size: 12px;">No activity yet.</p>';
     return;
   }
-
   activities.slice(0, 30).forEach(act => {
     const item = document.createElement('div');
     item.style.cssText = 'padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px;';
@@ -226,11 +197,9 @@ function renderActivityFeed() {
     feedEl.appendChild(item);
   });
 }
-
 function render() {
   const rowsEl = document.getElementById('rows');
   rowsEl.innerHTML = '';
-
   const groups = categories.map(c => ({ name: c, indices: [], deletable: true }));
   const other = { name: "Uncategorized", indices: [], deletable: false };
   tasks.forEach((t, i) => {
@@ -238,7 +207,6 @@ function render() {
     if (group) group.indices.push(i); else other.indices.push(i);
   });
   const allGroups = other.indices.length ? [...groups, other] : groups;
-
   allGroups.forEach(group => {
     const header = document.createElement('tr');
     header.className = 'group-header';
@@ -257,15 +225,12 @@ function render() {
       </td>
     `;
     rowsEl.appendChild(header);
-
     const visibleIndices = sortIndices(group.indices.filter(i => taskMatchesFilters(tasks[i])));
-
     if (!visibleIndices.length) {
       const empty = document.createElement('tr');
       empty.innerHTML = `<td colspan="9" class="no-matches">No matching tasks</td>`;
       rowsEl.appendChild(empty);
     }
-
     visibleIndices.forEach(i => {
       const t = tasks[i];
       const tr = document.createElement('tr');
@@ -275,7 +240,6 @@ function render() {
       const subtasks = t.subtasks || [];
       const doneCount = subtasks.filter(s => s.done).length;
       const isExpanded = expandedTasks.has(i);
-
       tr.innerHTML = `
         <td>
           <div class="task-cell">
@@ -317,7 +281,6 @@ function render() {
         <td><button class="del-btn" data-i="${i}" aria-label="Delete task">&times;</button></td>
       `;
       rowsEl.appendChild(tr);
-
       if (isExpanded) {
         const panel = document.createElement('tr');
         panel.className = 'subtask-panel-row';
@@ -342,9 +305,7 @@ function render() {
       }
     });
   });
-
   updateSummary();
-
   rowsEl.querySelectorAll('input, select').forEach(el => {
     if (!el.dataset.f) return;
     el.addEventListener('input', e => {
@@ -360,19 +321,15 @@ function render() {
       }
       
       saveTasks();
-
       if (f === 'category') {
         render();
         return;
       }
-
       const tr = e.target.closest('tr');
       const t = tasks[i];
-
       if (f === 'task' || f === 'owner') {
         return;
       }
-
       if (f === 'status') {
         tr.style.setProperty('--row-color', STATUS[t.status]);
         e.target.style.background = STATUS_BG[t.status];
@@ -380,18 +337,15 @@ function render() {
         updateSummary();
         renderGanttChart();
       }
-
       if (f === 'priority') {
         e.target.className = `priority priority-${t.priority}`;
       }
-
       if (f === 'due') {
         const isOverdue = t.due && t.due < todayStr() && t.status !== 'Done';
         e.target.classList.toggle('overdue-date', isOverdue);
         updateSummary();
         renderGanttChart();
       }
-
       if (f === 'progress') {
         const cell = tr.querySelector('.progress-cell');
         cell.querySelector('.bar-fill').style.width = t.progress + '%';
@@ -401,7 +355,6 @@ function render() {
       }
     });
   });
-
   rowsEl.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       const taskName = tasks[Number(e.currentTarget.dataset.i)].task;
@@ -411,7 +364,6 @@ function render() {
       saveTasks();
     });
   });
-
   rowsEl.querySelectorAll('.del-category-btn').forEach(btn => {
     btn.addEventListener('click', e => {
       const name = e.currentTarget.dataset.category;
@@ -420,7 +372,6 @@ function render() {
         ? `Delete "${name}"? ${affected} task${affected === 1 ? '' : 's'} will move to Uncategorized.`
         : `Delete "${name}"?`;
       if (!confirm(msg)) return;
-
       tasks.forEach(t => { if (t.category === name) t.category = undefined; });
       categories = categories.filter(c => c !== name);
       logActivity(`Category "${name}" deleted`);
@@ -429,7 +380,6 @@ function render() {
       render();
     });
   });
-
   rowsEl.querySelectorAll('[data-action="toggle-subtasks"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i);
@@ -437,7 +387,6 @@ function render() {
       render();
     });
   });
-
   rowsEl.querySelectorAll('[data-action="toggle-subtask"]').forEach(cb => {
     cb.addEventListener('change', e => {
       const i = Number(e.target.dataset.i), si = Number(e.target.dataset.si);
@@ -447,7 +396,6 @@ function render() {
       render();
     });
   });
-
   rowsEl.querySelectorAll('[data-action="delete-subtask"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i), si = Number(e.currentTarget.dataset.si);
@@ -458,7 +406,6 @@ function render() {
       render();
     });
   });
-
   function submitSubtask(i, inputEl) {
     const text = inputEl.value.trim();
     if (!text) return;
@@ -468,7 +415,6 @@ function render() {
     saveTasks();
     render();
   }
-
   rowsEl.querySelectorAll('[data-action="add-subtask"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i);
@@ -476,7 +422,6 @@ function render() {
       submitSubtask(i, input);
     });
   });
-
   rowsEl.querySelectorAll('.subtask-input').forEach(input => {
     input.addEventListener('keydown', e => {
       if (e.key === 'Enter') {
@@ -485,17 +430,14 @@ function render() {
     });
   });
 }
-
 function updateSummary() {
   const total = tasks.length;
   const overall = total ? Math.round(tasks.reduce((s, t) => s + Number(t.progress), 0) / total) : 0;
   const overdue = tasks.filter(t => t.due && t.due < todayStr() && t.status !== 'Done').length;
-
   document.getElementById('overall-progress').textContent = overall + '%';
   document.getElementById('overdue-count').textContent = overdue;
   document.getElementById('task-count').textContent = total;
   document.getElementById('updated').textContent = 'as of ' + todayStr();
-
   const statusList = document.getElementById('status-progress-list');
   statusList.innerHTML = '';
   Object.keys(STATUS).forEach(s => {
@@ -513,13 +455,11 @@ function updateSummary() {
     `;
     statusList.appendChild(row);
   });
-
   const progressList = document.getElementById('category-progress-list');
   progressList.innerHTML = '';
   const catNames = [...categories];
   const uncategorizedCount = tasks.filter(t => !categories.includes(t.category)).length;
   if (uncategorizedCount) catNames.push('Uncategorized');
-
   catNames.forEach((name, idx) => {
     const inCategory = name === 'Uncategorized'
       ? tasks.filter(t => !categories.includes(t.category))
@@ -528,7 +468,6 @@ function updateSummary() {
     const x = inCategory.filter(t => t.status === 'Done').length;
     const pct = y ? Math.round((x / y) * 100) : 0;
     const color = CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
-
     const row = document.createElement('div');
     row.className = 'cat-progress-row';
     row.style.setProperty('--cat-color', color);
@@ -541,27 +480,22 @@ function updateSummary() {
     `;
     progressList.appendChild(row);
   });
-
   if (!catNames.length) {
     progressList.innerHTML = '<p class="cat-empty">No categories yet — add one to see progress here.</p>';
   }
 }
-
 document.getElementById('search-input').addEventListener('input', e => {
   searchQuery = e.target.value;
   render();
 });
-
 document.getElementById('sort-select').addEventListener('change', e => {
   sortMode = e.target.value;
   render();
 });
-
 document.getElementById('overdue-only').addEventListener('change', e => {
   overdueOnly = e.target.checked;
   render();
 });
-
 document.getElementById('add-category').addEventListener('click', () => {
   const name = window.prompt('New category name:');
   if (!name) return;
@@ -576,25 +510,16 @@ document.getElementById('add-category').addEventListener('click', () => {
   saveCategories();
   render();
 });
-
 document.getElementById('add-row').addEventListener('click', () => {
+  if (!categories.length) {
+    alert('Please create a category first.');
+    return;
+  }
   tasks.push({ task: 'New task', owner: '', status: 'Not started', priority: 'Medium', category: categories[0], start: todayStr(), due: todayStr(), progress: 0, subtasks: [] });
   logActivity('New task created');
   render();
   saveTasks();
 });
-
-document.getElementById('add-category').addEventListener('click', () => {
-  const name = prompt('Category name:');
-  if (!name) return;
-  const trimmed = name.trim();
-  if (!trimmed || categories.includes(trimmed)) { alert('Invalid or duplicate category'); return; }
-  categories.push(trimmed);
-  saveCategories();
-  logActivity(`Category "${trimmed}" created`);
-  render();
-});
-
 document.getElementById('export-btn').addEventListener('click', () => {
   const data = tasks.map(t => ({
     Task: t.task,
@@ -619,11 +544,9 @@ document.getElementById('export-btn').addEventListener('click', () => {
   XLSX.writeFile(wb, `project_tracker_backup_${stamp}.xlsx`);
   logActivity('Project data exported to Excel');
 });
-
 render();
 renderGanttChart();
 renderActivityFeed();
-
 const toggleBtn = document.getElementById('theme-toggle');
 function currentIsDark() {
   const explicit = document.documentElement.getAttribute('data-theme');
