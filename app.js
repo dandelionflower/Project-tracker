@@ -116,9 +116,34 @@ function saveTasks() {
     }
   } catch (e) {}
   if (typeof checkDueSoon === 'function') checkDueSoon();
+  const calView = document.getElementById('calendar-view');
+  if (calView && calView.style.display !== 'none' && typeof renderCalendar === 'function') {
+    renderCalendar();
+  }
 }
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+function updateBulkActionBar() {
+  const bar = document.getElementById('bulk-action-bar');
+  const count = selectedTaskIds.size;
+  document.getElementById('bulk-count').textContent = `${count} selected`;
+  bar.style.display = count > 0 ? 'flex' : 'none';
+
+  const catSelect = document.getElementById('bulk-category-select');
+  const current = catSelect.value;
+  catSelect.innerHTML = '<option value="">Move to category…</option>' +
+    categories.map(c => `<option value="${c}" ${c === current ? 'selected' : ''}>${c}</option>`).join('');
+}
+
+function updateSelectAllCheckbox() {
+  const selectAll = document.getElementById('select-all');
+  const visibleCheckboxes = document.querySelectorAll('#rows .row-select');
+  if (!visibleCheckboxes.length) { selectAll.checked = false; selectAll.indeterminate = false; return; }
+  const checkedCount = [...visibleCheckboxes].filter(cb => cb.checked).length;
+  selectAll.checked = checkedCount === visibleCheckboxes.length;
+  selectAll.indeterminate = checkedCount > 0 && checkedCount < visibleCheckboxes.length;
+}
 
 function refreshTagFilterOptions() {
   const select = document.getElementById('tag-filter');
@@ -139,6 +164,7 @@ let overdueOnly = false;
 let tagFilter = '';
 const expandedTasks = new Set();
 let dragSrcTaskId = null;
+const selectedTaskIds = new Set();
 
 function taskMatchesFilters(t) {
   const q = searchQuery.trim().toLowerCase();
@@ -303,7 +329,7 @@ function render() {
     const x = group.indices.filter(i => tasks[i].status === 'Done').length;
     const pct = y ? Math.round((x / y) * 100) : 0;
     header.innerHTML = `
-      <td colspan="9">
+      <td colspan="10">
         <div class="group-header-inner">
           <span class="group-name">${group.name}</span>
           <span class="group-meta">
@@ -319,7 +345,7 @@ function render() {
 
     if (!visibleIndices.length) {
       const empty = document.createElement('tr');
-      empty.innerHTML = `<td colspan="9" class="no-matches">No matching tasks</td>`;
+      empty.innerHTML = `<td colspan="10" class="no-matches">No matching tasks</td>`;
       rowsEl.appendChild(empty);
     }
 
@@ -335,6 +361,7 @@ function render() {
       const isExpanded = expandedTasks.has(i);
 
       tr.innerHTML = `
+        <td><input type="checkbox" class="row-select" data-task-id="${t.id}" ${selectedTaskIds.has(t.id) ? 'checked' : ''} aria-label="Select task" /></td>
         <td>
           <div class="task-cell">
             <div class="task-cell-row">
@@ -397,7 +424,7 @@ function render() {
         const panel = document.createElement('tr');
         panel.className = 'subtask-panel-row';
         panel.innerHTML = `
-          <td colspan="9">
+          <td colspan="10">
             <div class="subtask-panel">
               ${subtasks.map((s, si) => `
                 <div class="subtask-item">
@@ -420,6 +447,16 @@ function render() {
 
   updateSummary();
   refreshTagFilterOptions();
+  updateBulkActionBar();
+
+  rowsEl.querySelectorAll('.row-select').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const id = e.target.dataset.taskId;
+      if (e.target.checked) selectedTaskIds.add(id); else selectedTaskIds.delete(id);
+      updateBulkActionBar();
+      updateSelectAllCheckbox();
+    });
+  });
 
   rowsEl.querySelectorAll('input, select').forEach(el => {
     if (!el.dataset.f) return;
@@ -732,6 +769,56 @@ document.getElementById('tag-filter').addEventListener('change', e => {
   render();
 });
 
+// --- Bulk actions ----------------------------------------------------------
+document.getElementById('select-all').addEventListener('change', e => {
+  const visibleIds = [...document.querySelectorAll('#rows .row-select')].map(cb => cb.dataset.taskId);
+  if (e.target.checked) {
+    visibleIds.forEach(id => selectedTaskIds.add(id));
+  } else {
+    visibleIds.forEach(id => selectedTaskIds.delete(id));
+  }
+  render();
+});
+
+document.getElementById('bulk-done-btn').addEventListener('click', () => {
+  const affected = tasks.filter(t => selectedTaskIds.has(t.id));
+  affected.forEach(t => { t.status = 'Done'; t.progress = 100; });
+  logActivity(`Marked ${affected.length} task${affected.length === 1 ? '' : 's'} as Done`);
+  selectedTaskIds.clear();
+  saveTasks();
+  render();
+  renderGanttChart();
+});
+
+document.getElementById('bulk-delete-btn').addEventListener('click', () => {
+  const count = selectedTaskIds.size;
+  if (!count) return;
+  if (!confirm(`Delete ${count} task${count === 1 ? '' : 's'}? This can't be undone.`)) return;
+  tasks = tasks.filter(t => !selectedTaskIds.has(t.id));
+  logActivity(`Deleted ${count} task${count === 1 ? '' : 's'} (bulk action)`);
+  selectedTaskIds.clear();
+  saveTasks();
+  render();
+  renderGanttChart();
+});
+
+document.getElementById('bulk-category-select').addEventListener('change', e => {
+  const category = e.target.value;
+  if (!category) return;
+  const affected = tasks.filter(t => selectedTaskIds.has(t.id));
+  affected.forEach(t => { t.category = category; });
+  logActivity(`Moved ${affected.length} task${affected.length === 1 ? '' : 's'} to "${category}"`);
+  selectedTaskIds.clear();
+  e.target.value = '';
+  saveTasks();
+  render();
+});
+
+document.getElementById('bulk-clear-btn').addEventListener('click', () => {
+  selectedTaskIds.clear();
+  render();
+});
+
 document.getElementById('add-category').addEventListener('click', () => {
   const name = window.prompt('New category name:');
   if (!name) return;
@@ -784,6 +871,89 @@ document.getElementById('export-btn').addEventListener('click', () => {
 render();
 renderGanttChart();
 renderActivityFeed();
+
+// --- Calendar view ---------------------------------------------------------
+let calendarMonth = new Date().getMonth();
+let calendarYear = new Date().getFullYear();
+
+function renderCalendar() {
+  const grid = document.getElementById('calendar-grid');
+  const label = document.getElementById('cal-month-label');
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  label.textContent = `${monthNames[calendarMonth]} ${calendarYear}`;
+
+  grid.innerHTML = '';
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
+    const el = document.createElement('div');
+    el.className = 'cal-weekday';
+    el.textContent = d;
+    grid.appendChild(el);
+  });
+
+  const firstOfMonth = new Date(calendarYear, calendarMonth, 1);
+  const startOffset = firstOfMonth.getDay(); // 0=Sun
+  const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
+  const daysInPrevMonth = new Date(calendarYear, calendarMonth, 0).getDate();
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+  const today = todayStr();
+
+  for (let cell = 0; cell < totalCells; cell++) {
+    const dayNum = cell - startOffset + 1;
+    let cellDate, otherMonth = false;
+    if (dayNum < 1) {
+      cellDate = new Date(calendarYear, calendarMonth - 1, daysInPrevMonth + dayNum);
+      otherMonth = true;
+    } else if (dayNum > daysInMonth) {
+      cellDate = new Date(calendarYear, calendarMonth + 1, dayNum - daysInMonth);
+      otherMonth = true;
+    } else {
+      cellDate = new Date(calendarYear, calendarMonth, dayNum);
+    }
+    const dateStr = cellDate.toISOString().slice(0, 10);
+
+    const dayEl = document.createElement('div');
+    dayEl.className = 'cal-day' + (otherMonth ? ' other-month' : '') + (dateStr === today ? ' today' : '');
+
+    const dueTasks = tasks.filter(t => t.due === dateStr);
+    const shown = dueTasks.slice(0, 3);
+    const extra = dueTasks.length - shown.length;
+
+    dayEl.innerHTML = `
+      <span class="cal-day-num">${cellDate.getDate()}</span>
+      ${shown.map(t => {
+        const isOverdue = t.due < today && t.status !== 'Done';
+        return `<span class="cal-task-chip ${isOverdue ? 'overdue-chip' : ''}" style="background:${STATUS[t.status]};" title="${t.task} — ${t.status}">${t.task}</span>`;
+      }).join('')}
+      ${extra > 0 ? `<span class="cal-more">+${extra} more</span>` : ''}
+    `;
+    grid.appendChild(dayEl);
+  }
+}
+
+document.getElementById('cal-prev').addEventListener('click', () => {
+  calendarMonth--;
+  if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
+  renderCalendar();
+});
+document.getElementById('cal-next').addEventListener('click', () => {
+  calendarMonth++;
+  if (calendarMonth > 11) { calendarMonth = 0; calendarYear++; }
+  renderCalendar();
+});
+
+document.getElementById('view-table-btn').addEventListener('click', () => {
+  document.getElementById('table-view').style.display = 'block';
+  document.getElementById('calendar-view').style.display = 'none';
+  document.getElementById('view-table-btn').classList.add('active');
+  document.getElementById('view-calendar-btn').classList.remove('active');
+});
+document.getElementById('view-calendar-btn').addEventListener('click', () => {
+  document.getElementById('table-view').style.display = 'none';
+  document.getElementById('calendar-view').style.display = 'block';
+  document.getElementById('view-calendar-btn').classList.add('active');
+  document.getElementById('view-table-btn').classList.remove('active');
+  renderCalendar();
+});
 
 // --- Due-soon alerts -----------------------------------------------------
 // The in-page banner always works (no permissions needed) and is the
