@@ -326,6 +326,36 @@ function renderActivityFeed() {
   });
 }
 
+// Native HTML5 drag/drop gives no reorder animation on its own, so this
+// implements FLIP (First, Last, Invert, Play): snapshot every row's position
+// before the reorder, let the DOM update instantly, then for any row that
+// ended up somewhere new, jump it back to its old spot with a transform and
+// animate that transform away — it reads as a smooth slide into place.
+function captureRowRects() {
+  const map = new Map();
+  document.querySelectorAll('#rows tr[data-task-id]').forEach(tr => {
+    map.set(tr.dataset.taskId, tr.getBoundingClientRect());
+  });
+  return map;
+}
+
+function playFlipAnimation(oldRects) {
+  document.querySelectorAll('#rows tr[data-task-id]').forEach(tr => {
+    const oldRect = oldRects.get(tr.dataset.taskId);
+    if (!oldRect) return;
+    const newRect = tr.getBoundingClientRect();
+    const deltaY = oldRect.top - newRect.top;
+    if (Math.abs(deltaY) < 1) return;
+
+    tr.style.transition = 'none';
+    tr.style.transform = `translateY(${deltaY}px)`;
+    requestAnimationFrame(() => {
+      tr.style.transition = 'transform 0.28s cubic-bezier(0.2, 0, 0.2, 1)';
+      tr.style.transform = '';
+    });
+  });
+}
+
 function render() {
   const rowsEl = document.getElementById('rows');
   rowsEl.innerHTML = '';
@@ -605,8 +635,16 @@ function render() {
 
   rowsEl.querySelectorAll('.drag-handle').forEach(handle => {
     handle.addEventListener('dragstart', e => {
-      dragSrcTaskId = e.currentTarget.dataset.i !== undefined ? tasks[Number(e.currentTarget.dataset.i)].id : null;
+      const i = Number(e.currentTarget.dataset.i);
+      dragSrcTaskId = tasks[i] ? tasks[i].id : null;
       e.dataTransfer.effectAllowed = 'move';
+      const tr = e.currentTarget.closest('tr');
+      // Let the browser paint the native drag image before dimming the row —
+      // dimming immediately would make the drag ghost look dim too.
+      requestAnimationFrame(() => tr.classList.add('dragging'));
+    });
+    handle.addEventListener('dragend', e => {
+      e.currentTarget.closest('tr').classList.remove('dragging');
     });
   });
 
@@ -636,8 +674,11 @@ function render() {
 
       dragSrcTaskId = null;
       logActivity(`Reordered "${moved.task}"`);
+
+      const oldRects = captureRowRects();
       saveTasks();
       render();
+      playFlipAnimation(oldRects);
     });
   });
 
