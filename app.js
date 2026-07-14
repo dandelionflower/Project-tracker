@@ -1,5 +1,11 @@
 const CATEGORY_COLORS = ["#4F46E5", "#0EA5E9", "#D97706", "#DB2777", "#059669", "#7C3AED", "#DC2626", "#0891B2"];
 
+function tagColor(tag) {
+  let hash = 0;
+  for (let c = 0; c < tag.length; c++) hash = (hash * 31 + tag.charCodeAt(c)) >>> 0;
+  return CATEGORY_COLORS[hash % CATEGORY_COLORS.length];
+}
+
 let categories = loadCategories();
 let activities = loadActivities();
 
@@ -77,7 +83,8 @@ function createRecurringClone(t) {
     progress: 0,
     start: newStart,
     due: newDue,
-    subtasks: (t.subtasks || []).map(s => ({ text: s.text, done: false }))
+    subtasks: (t.subtasks || []).map(s => ({ text: s.text, done: false })),
+    tags: [...(t.tags || [])]
   };
 }
 
@@ -113,18 +120,37 @@ function saveTasks() {
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
+function refreshTagFilterOptions() {
+  const select = document.getElementById('tag-filter');
+  const allTags = [...new Set(tasks.flatMap(t => t.tags || []))].sort();
+  const current = select.value;
+  select.innerHTML = '<option value="">All tags</option>' +
+    allTags.map(tag => `<option value="${tag}" ${tag === current ? 'selected' : ''}>${tag}</option>`).join('');
+  // If the previously selected tag no longer exists, fall back to "All tags".
+  if (current && !allTags.includes(current)) {
+    tagFilter = '';
+    select.value = '';
+  }
+}
+
 let searchQuery = '';
 let sortMode = 'none';
 let overdueOnly = false;
+let tagFilter = '';
 const expandedTasks = new Set();
 let dragSrcTaskId = null;
 
 function taskMatchesFilters(t) {
   const q = searchQuery.trim().toLowerCase();
-  const matchesSearch = !q || t.task.toLowerCase().includes(q) || (t.owner || '').toLowerCase().includes(q);
+  const tags = t.tags || [];
+  const matchesSearch = !q
+    || t.task.toLowerCase().includes(q)
+    || (t.owner || '').toLowerCase().includes(q)
+    || tags.some(tag => tag.toLowerCase().includes(q));
   const isOverdue = t.due && t.due < todayStr() && t.status !== 'Done';
   const matchesOverdue = !overdueOnly || isOverdue;
-  return matchesSearch && matchesOverdue;
+  const matchesTag = !tagFilter || tags.includes(tagFilter);
+  return matchesSearch && matchesOverdue && matchesTag;
 }
 
 function sortIndices(indices) {
@@ -323,6 +349,15 @@ function render() {
                 🔁 ${t.recurring ? 'Repeats weekly' : 'Make recurring'}
               </button>
             </div>
+            <div class="task-tags-row">
+              ${(t.tags || []).map(tag => `
+                <span class="tag-chip" style="--tag-color:${tagColor(tag)}">
+                  ${tag}
+                  <button data-i="${i}" data-tag="${tag}" data-action="remove-tag" aria-label="Remove tag ${tag}">&times;</button>
+                </span>
+              `).join('')}
+              <button class="tag-add-btn" data-i="${i}" data-action="add-tag">+ tag</button>
+            </div>
           </div>
         </td>
         <td><input type="text" value="${t.owner}" data-i="${i}" data-f="owner" /></td>
@@ -384,6 +419,7 @@ function render() {
   });
 
   updateSummary();
+  refreshTagFilterOptions();
 
   rowsEl.querySelectorAll('input, select').forEach(el => {
     if (!el.dataset.f) return;
@@ -540,6 +576,33 @@ function render() {
     });
   });
 
+  rowsEl.querySelectorAll('[data-action="add-tag"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      const raw = window.prompt('Add tag:');
+      if (!raw) return;
+      const tag = raw.trim();
+      if (!tag) return;
+      if (!tasks[i].tags) tasks[i].tags = [];
+      if (tasks[i].tags.some(x => x.toLowerCase() === tag.toLowerCase())) return;
+      tasks[i].tags.push(tag);
+      logActivity(`Tag "${tag}" added to "${tasks[i].task}"`);
+      saveTasks();
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="remove-tag"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      const tag = e.currentTarget.dataset.tag;
+      tasks[i].tags = (tasks[i].tags || []).filter(x => x !== tag);
+      logActivity(`Tag "${tag}" removed from "${tasks[i].task}"`);
+      saveTasks();
+      render();
+    });
+  });
+
   rowsEl.querySelectorAll('[data-action="toggle-subtask"]').forEach(cb => {
     cb.addEventListener('change', e => {
       const i = Number(e.target.dataset.i), si = Number(e.target.dataset.si);
@@ -664,6 +727,11 @@ document.getElementById('overdue-only').addEventListener('change', e => {
   render();
 });
 
+document.getElementById('tag-filter').addEventListener('change', e => {
+  tagFilter = e.target.value;
+  render();
+});
+
 document.getElementById('add-category').addEventListener('click', () => {
   const name = window.prompt('New category name:');
   if (!name) return;
@@ -694,15 +762,16 @@ document.getElementById('export-btn').addEventListener('click', () => {
     Owner: t.owner,
     Status: t.status,
     Priority: t.priority,
+    Tags: (t.tags || []).join(', '),
     Start: t.start || '',
     Due: t.due,
     "% complete": t.progress / 100
   }));
   const ws = XLSX.utils.json_to_sheet(data);
-  ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
+  ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
   const range = XLSX.utils.decode_range(ws['!ref']);
   for (let r = 1; r <= range.e.r; r++) {
-    const cell = ws[XLSX.utils.encode_cell({ r, c: 7 })];
+    const cell = ws[XLSX.utils.encode_cell({ r, c: 8 })];
     if (cell) cell.z = '0%';
   }
   const wb = XLSX.utils.book_new();
@@ -716,9 +785,12 @@ render();
 renderGanttChart();
 renderActivityFeed();
 
-// --- Due-soon browser notifications -----------------------------------
-const notifiedTaskIds = new Set(); // dedupe per page session
+// --- Due-soon alerts -----------------------------------------------------
+// The in-page banner always works (no permissions needed) and is the
+// primary alert. A real OS notification fires too, but only as a bonus,
+// since browsers heavily restrict Notification on file:// pages.
 let notificationsEnabled = localStorage.getItem('project-tracker-notify') === 'on';
+let dismissedAlertIds = new Set();
 
 const notifyBtn = document.getElementById('notify-btn');
 function updateNotifyBtn() {
@@ -726,52 +798,156 @@ function updateNotifyBtn() {
 }
 updateNotifyBtn();
 
-function checkDueSoon() {
-  if (!notificationsEnabled || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+function getDueSoonTasks() {
   const soonCutoff = addDays(todayStr(), 1); // due today or tomorrow counts as "soon"
-  tasks.forEach(t => {
-    if (!t.due || t.status === 'Done' || notifiedTaskIds.has(t.id)) return;
-    const isOverdue = t.due < todayStr();
-    const isSoon = t.due <= soonCutoff;
-    if (isOverdue || isSoon) {
-      new Notification('Project tracker', {
-        body: `"${t.task}" ${isOverdue ? 'is overdue' : 'is due soon'} (${t.due})`
-      });
-      notifiedTaskIds.add(t.id);
-    }
+  return tasks.filter(t => {
+    if (!t.due || t.status === 'Done' || dismissedAlertIds.has(t.id)) return false;
+    return t.due <= soonCutoff; // covers overdue and due-soon in one check
   });
+}
+
+function renderAlertBanner() {
+  const container = document.getElementById('alert-banner-container');
+  if (!notificationsEnabled) { container.innerHTML = ''; return; }
+
+  const due = getDueSoonTasks();
+  if (!due.length) { container.innerHTML = ''; return; }
+
+  const overdueCount = due.filter(t => t.due < todayStr()).length;
+  const soonCount = due.length - overdueCount;
+  const parts = [];
+  if (overdueCount) parts.push(`${overdueCount} overdue`);
+  if (soonCount) parts.push(`${soonCount} due soon`);
+
+  container.innerHTML = `
+    <div class="alert-banner">
+      <span class="alert-banner-text">
+        <strong>${due.length} task${due.length === 1 ? '' : 's'} need attention</strong> — ${parts.join(', ')}: ${due.map(t => t.task).join(', ')}
+      </span>
+      <button class="alert-banner-dismiss" id="dismiss-alert-banner" aria-label="Dismiss">&times;</button>
+    </div>
+  `;
+  document.getElementById('dismiss-alert-banner').addEventListener('click', () => {
+    due.forEach(t => dismissedAlertIds.add(t.id));
+    renderAlertBanner();
+  });
+}
+
+function checkDueSoon() {
+  renderAlertBanner();
+
+  // Bonus: try a real OS notification too, but never rely on it alone.
+  if (!notificationsEnabled || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try {
+    getDueSoonTasks().forEach(t => {
+      new Notification('Project tracker', {
+        body: `"${t.task}" ${t.due < todayStr() ? 'is overdue' : 'is due soon'} (${t.due})`
+      });
+    });
+  } catch (e) {
+    // OS notification failed silently (common on file:// pages) — the
+    // in-page banner above already covers this, so nothing else to do.
+  }
 }
 
 notifyBtn.addEventListener('click', () => {
   if (!notificationsEnabled) {
-    if (typeof Notification === 'undefined') {
-      alert('This browser does not support notifications.');
-      return;
+    notificationsEnabled = true;
+    localStorage.setItem('project-tracker-notify', 'on');
+    updateNotifyBtn();
+    dismissedAlertIds = new Set();
+    checkDueSoon();
+
+    // Try to also enable OS notifications, but this is optional —
+    // the in-page banner works regardless of whether this succeeds.
+    if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
     }
-    Notification.requestPermission().then(perm => {
-      if (perm === 'granted') {
-        notificationsEnabled = true;
-        localStorage.setItem('project-tracker-notify', 'on');
-        updateNotifyBtn();
-        checkDueSoon();
-      } else {
-        alert('Notification permission was not granted.');
-      }
-    });
   } else {
     notificationsEnabled = false;
     localStorage.setItem('project-tracker-notify', 'off');
     updateNotifyBtn();
+    document.getElementById('alert-banner-container').innerHTML = '';
   }
 });
 
-if (notificationsEnabled && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-  checkDueSoon();
-}
+checkDueSoon();
 
 // --- Print report --------------------------------------------------------
 document.getElementById('print-btn').addEventListener('click', () => {
   window.print();
+});
+
+// --- JSON backup / restore ------------------------------------------------
+document.getElementById('json-export-btn').addEventListener('click', () => {
+  const backup = {
+    exportedAt: new Date().toISOString(),
+    version: 1,
+    tasks,
+    categories
+  };
+  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `project_tracker_backup_${todayStr()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  logActivity('Project data exported to JSON');
+});
+
+document.getElementById('json-import-btn').addEventListener('click', () => {
+  document.getElementById('json-import-input').click();
+});
+
+document.getElementById('json-import-input').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch (err) {
+      alert('That file is not valid JSON.');
+      e.target.value = '';
+      return;
+    }
+
+    if (!parsed || !Array.isArray(parsed.tasks)) {
+      alert('This JSON file doesn\'t look like a project tracker backup (missing a "tasks" array).');
+      e.target.value = '';
+      return;
+    }
+
+    const taskCount = parsed.tasks.length;
+    const categoryCount = Array.isArray(parsed.categories) ? parsed.categories.length : 0;
+    const proceed = confirm(
+      `Import ${taskCount} task${taskCount === 1 ? '' : 's'} and ${categoryCount} categor${categoryCount === 1 ? 'y' : 'ies'}?\n\n` +
+      `This will REPLACE all current data in this tracker. This can't be undone.`
+    );
+    if (!proceed) { e.target.value = ''; return; }
+
+    // Backfill IDs in case the imported file predates the ID system.
+    tasks = parsed.tasks.map(t => ({ ...t, id: t.id || makeId() }));
+    categories = Array.isArray(parsed.categories) ? parsed.categories : [];
+
+    saveTasks();
+    saveCategories();
+    dismissedAlertIds = new Set();
+    render();
+    renderGanttChart();
+    logActivity(`Restored from backup (${taskCount} tasks)`);
+    e.target.value = '';
+  };
+  reader.onerror = () => {
+    alert('Could not read that file.');
+    e.target.value = '';
+  };
+  reader.readAsText(file);
 });
 
 // --- Keyboard shortcuts ---------------------------------------------------
