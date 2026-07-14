@@ -464,6 +464,44 @@
     cursor: pointer;
   }
   .overdue-toggle input { cursor: pointer; }
+  .drag-handle {
+    cursor: grab;
+    color: var(--ink-faint);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .drag-handle:active { cursor: grabbing; }
+  .task-cell-row { display: flex; align-items: center; gap: 6px; }
+  .task-cell-row input { flex: 1; }
+  .task-cell-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .recurring-toggle {
+    border: none;
+    background: transparent;
+    color: var(--ink-faint);
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+  .recurring-toggle:hover { background: var(--bg); color: var(--ink-soft); }
+  .recurring-toggle.on { color: var(--accent); }
+
+  tr.drag-over { box-shadow: inset 0 2px 0 0 var(--accent); }
+
+  @media print {
+    body { background: white; padding: 0; }
+    .toolbar, .add-row, .theme-toggle, .export-btn, .subtask-toggle,
+    .recurring-toggle, .drag-handle, .del-btn, .del-category-btn,
+    .gantt-container, .activity-feed, input[type="range"] {
+      display: none !important;
+    }
+    .table-card, .distribution { border: 1px solid #ccc; box-shadow: none; }
+    input, select { border: none !important; color: black !important; -webkit-print-color-adjust: exact; }
+    .dashboard-grid { display: block; }
+    .cards { break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -477,6 +515,8 @@
     <div style="display:flex; align-items:center; gap:12px;">
       <span class="save-status" id="save-status"></span>
       <button class="export-btn" id="export-btn">⬇ Export to Excel</button>
+      <button class="export-btn" id="print-btn">🖨 Print report</button>
+      <button class="export-btn" id="notify-btn">🔔 Due alerts: off</button>
       <div class="updated" id="updated"></div>
       <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
     </div>
@@ -560,6 +600,6 @@
 
 </div>
 
-<script src="app.features.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
