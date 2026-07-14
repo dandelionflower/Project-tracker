@@ -578,10 +578,21 @@ document.getElementById('add-category').addEventListener('click', () => {
 });
 
 document.getElementById('add-row').addEventListener('click', () => {
-  tasks.push({ task: 'New task', owner: '', status: 'Not started', priority: 'Medium', category: categories[0], start: todayStr(), due: todayStr(), progress: 0 });
+  tasks.push({ task: 'New task', owner: '', status: 'Not started', priority: 'Medium', category: categories[0], start: todayStr(), due: todayStr(), progress: 0, subtasks: [] });
   logActivity('New task created');
   render();
   saveTasks();
+});
+
+document.getElementById('add-category').addEventListener('click', () => {
+  const name = prompt('Category name:');
+  if (!name) return;
+  const trimmed = name.trim();
+  if (!trimmed || categories.includes(trimmed)) { alert('Invalid or duplicate category'); return; }
+  categories.push(trimmed);
+  saveCategories();
+  logActivity(`Category "${trimmed}" created`);
+  render();
 });
 
 document.getElementById('export-btn').addEventListener('click', () => {
