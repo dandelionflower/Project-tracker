@@ -280,6 +280,47 @@
   }
   .del-category-btn:hover { color: var(--blocked); background: var(--blocked-bg); }
 
+  .cat-progress-row {
+    position: relative;
+    height: 34px;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 8px;
+    background: var(--bg);
+    background: color-mix(in srgb, var(--cat-color) 22%, var(--surface));
+  }
+  .cat-progress-row:last-child { margin-bottom: 0; }
+  .cat-progress-fill {
+    position: absolute;
+    inset: 0;
+    background: var(--cat-color);
+    transition: width 0.2s ease;
+  }
+  .cat-progress-label {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #FFFFFF;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+    font-family: 'Inter', sans-serif;
+  }
+  .cat-progress-label span:last-child {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    font-size: 11px;
+  }
+  .cat-empty {
+    font-size: 12px;
+    color: var(--ink-faint);
+    margin: 0;
+  }
+
   .category-tag {
     width: 100%;
     border: 1px solid transparent;
@@ -327,17 +368,14 @@
     </div>
   </div>
 
-  <div class="distribution-row">
-    <div class="distribution">
-      <p class="label">Status breakdown</p>
-      <div class="dist-bar" id="dist-bar"></div>
-      <div class="dist-legend" id="dist-legend"></div>
-    </div>
-    <div class="distribution">
-      <p class="label">Category breakdown</p>
-      <div class="dist-bar" id="dist-bar-cat"></div>
-      <div class="dist-legend" id="dist-legend-cat"></div>
-    </div>
+  <div class="distribution">
+    <p class="label">Status breakdown</p>
+    <div id="status-progress-list"></div>
+  </div>
+
+  <div class="distribution">
+    <p class="label">Category progress</p>
+    <div id="category-progress-list"></div>
   </div>
 
   <div class="table-card">
@@ -373,7 +411,7 @@ function loadCategories() {
     const saved = localStorage.getItem('project-tracker-categories');
     if (saved) return JSON.parse(saved);
   } catch (e) {}
-  return ["Planning", "Data Gathering", "Testing and Deployment"];
+  return [];
 }
 
 function saveCategories() {
@@ -403,10 +441,10 @@ function loadTasks() {
     if (saved) return JSON.parse(saved);
   } catch (e) {}
   return [
-    { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", category: "Planning", start: "2026-06-28", due: "2026-07-01", progress: 100 },
-    { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", category: "Planning", start: "2026-07-02", due: "2026-07-16", progress: 60 },
-    { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", category: "Data Gathering", start: "2026-07-17", due: "2026-07-22", progress: 0 },
-    { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", category: "Testing and Deployment", start: "2026-07-05", due: "2026-07-10", progress: 20 }
+    { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", start: "2026-06-28", due: "2026-07-01", progress: 100 },
+    { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", start: "2026-07-02", due: "2026-07-16", progress: 60 },
+    { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", start: "2026-07-17", due: "2026-07-22", progress: 0 },
+    { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", start: "2026-07-05", due: "2026-07-10", progress: 20 }
   ];
 }
 
@@ -441,16 +479,15 @@ function render() {
   allGroups.forEach(group => {
     const header = document.createElement('tr');
     header.className = 'group-header';
-    const count = group.indices.length;
-    const avg = count
-      ? Math.round(group.indices.reduce((s, i) => s + Number(tasks[i].progress), 0) / count)
-      : 0;
+    const y = group.indices.length;
+    const x = group.indices.filter(i => tasks[i].status === 'Done').length;
+    const pct = y ? Math.round((x / y) * 100) : 0;
     header.innerHTML = `
       <td colspan="9">
         <div class="group-header-inner">
           <span class="group-name">${group.name}</span>
           <span class="group-meta">
-            ${count} task${count === 1 ? '' : 's'} &middot; ${avg}% avg
+            ${y ? `[${x}/${y}] ${pct}%` : 'No tasks'}
             ${group.deletable ? `<button class="del-category-btn" data-category="${group.name}" aria-label="Delete category ${group.name}">&times;</button>` : ''}
           </span>
         </div>
@@ -512,18 +549,21 @@ function render() {
       tasks[i][f] = f === 'progress' ? Number(e.target.value) : e.target.value;
       saveTasks();
 
-     
+      // 'category' changes which group a row belongs to, so it's the
+      // one field that still needs a full rebuild rather than a patch.
       if (f === 'category') {
         render();
         return;
       }
 
-      
+      // Patch only what actually needs to change, instead of
+      // rebuilding the whole table (which would steal focus mid-typing).
       const tr = e.target.closest('tr');
       const t = tasks[i];
 
       if (f === 'task' || f === 'owner') {
-        
+        // Nothing else on screen depends on these — data is already
+        // correct via the input's own value, no DOM patch needed.
         return;
       }
 
@@ -590,46 +630,55 @@ function updateSummary() {
   document.getElementById('task-count').textContent = total;
   document.getElementById('updated').textContent = 'as of ' + todayStr();
 
-  const distBar = document.getElementById('dist-bar');
-  const distLegend = document.getElementById('dist-legend');
-  distBar.innerHTML = '';
-  distLegend.innerHTML = '';
+  const statusList = document.getElementById('status-progress-list');
+  statusList.innerHTML = '';
   Object.keys(STATUS).forEach(s => {
     const count = tasks.filter(t => t.status === s).length;
-    const pct = total ? (count / total) * 100 : 0;
-    const seg = document.createElement('div');
-    seg.style.width = pct + '%';
-    seg.style.background = STATUS[s];
-    distBar.appendChild(seg);
-
-    const item = document.createElement('span');
-    item.innerHTML = `<span class="dot" style="background:${STATUS[s]}"></span>${s} (${count})`;
-    distLegend.appendChild(item);
+    const pct = total ? Math.round((count / total) * 100) : 0;
+    const row = document.createElement('div');
+    row.className = 'cat-progress-row';
+    row.style.setProperty('--cat-color', STATUS[s]);
+    row.innerHTML = `
+      <div class="cat-progress-fill" style="width:${count ? pct : 0}%;"></div>
+      <div class="cat-progress-label">
+        <span>${s}</span>
+        <span>${count ? `[${count}/${total}] ${pct}%` : 'No tasks'}</span>
+      </div>
+    `;
+    statusList.appendChild(row);
   });
 
-  const distBarCat = document.getElementById('dist-bar-cat');
-  const distLegendCat = document.getElementById('dist-legend-cat');
-  distBarCat.innerHTML = '';
-  distLegendCat.innerHTML = '';
+  const progressList = document.getElementById('category-progress-list');
+  progressList.innerHTML = '';
   const catNames = [...categories];
   const uncategorizedCount = tasks.filter(t => !categories.includes(t.category)).length;
   if (uncategorizedCount) catNames.push('Uncategorized');
 
   catNames.forEach((name, idx) => {
-    const count = name === 'Uncategorized'
-      ? uncategorizedCount
-      : tasks.filter(t => t.category === name).length;
-    const pct = total ? (count / total) * 100 : 0;
+    const inCategory = name === 'Uncategorized'
+      ? tasks.filter(t => !categories.includes(t.category))
+      : tasks.filter(t => t.category === name);
+    const y = inCategory.length;
+    const x = inCategory.filter(t => t.status === 'Done').length;
+    const pct = y ? Math.round((x / y) * 100) : 0;
     const color = CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
-    const seg = document.createElement('div');
-    seg.style.width = pct + '%';
-    seg.style.background = color;
-    distBarCat.appendChild(seg);
 
-    const item = document.createElement('span');
-    item.innerHTML = `<span class="dot" style="background:${color}"></span>${name} (${count})`;
-    distLegendCat.appendChild(item);
+    const row = document.createElement('div');
+    row.className = 'cat-progress-row';
+    row.style.setProperty('--cat-color', color);
+    row.innerHTML = `
+      <div class="cat-progress-fill" style="width:${y ? pct : 0}%;"></div>
+      <div class="cat-progress-label">
+        <span>${name}</span>
+        <span>${y ? `[${x}/${y}] ${pct}%` : 'No tasks'}</span>
+      </div>
+    `;
+    progressList.appendChild(row);
   });
+
+  if (!catNames.length) {
+    progressList.innerHTML = '<p class="cat-empty">No categories yet — add one to see progress here.</p>';
+  }
 }
 
 document.getElementById('add-category').addEventListener('click', () => {
