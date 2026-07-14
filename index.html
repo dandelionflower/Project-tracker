@@ -490,6 +490,66 @@
 
   tr.drag-over { box-shadow: inset 0 2px 0 0 var(--accent); }
 
+  .task-tags-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; align-items: center; }
+  .tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: color-mix(in srgb, var(--tag-color) 16%, var(--surface));
+    color: var(--tag-color);
+    border-radius: 999px;
+    padding: 2px 4px 2px 8px;
+    font-size: 10px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .tag-chip button {
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    padding: 0 4px;
+  }
+  .tag-add-btn {
+    border: 1px dashed var(--border);
+    background: transparent;
+    color: var(--ink-faint);
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .tag-add-btn:hover { color: var(--ink-soft); border-color: var(--ink-faint); }
+
+  .alert-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--blocked-bg);
+    border: 1px solid var(--blocked);
+    color: var(--blocked);
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-bottom: 1rem;
+    font-size: 13px;
+  }
+  .alert-banner-text { flex: 1; }
+  .alert-banner-text strong { font-weight: 600; }
+  .alert-banner-dismiss {
+    border: none;
+    background: transparent;
+    color: var(--blocked);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+  .alert-banner-dismiss:hover { background: rgba(0,0,0,0.06); }
+
   @media print {
     body { background: white; padding: 0; }
     .toolbar, .add-row, .theme-toggle, .export-btn, .subtask-toggle,
@@ -517,10 +577,15 @@
       <button class="export-btn" id="export-btn">⬇ Export to Excel</button>
       <button class="export-btn" id="print-btn">🖨 Print report</button>
       <button class="export-btn" id="notify-btn">🔔 Due alerts: off</button>
+      <button class="export-btn" id="json-export-btn">⬇ Backup (JSON)</button>
+      <button class="export-btn" id="json-import-btn">⬆ Restore (JSON)</button>
+      <input type="file" id="json-import-input" accept="application/json" style="display:none;" />
       <div class="updated" id="updated"></div>
       <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
     </div>
   </header>
+
+  <div id="alert-banner-container"></div>
 
   <div class="cards">
     <div class="card accent">
@@ -570,6 +635,9 @@
       <option value="due">Due date (soonest first)</option>
       <option value="priority">Priority (high first)</option>
       <option value="progress">Progress (lowest first)</option>
+    </select>
+    <select id="tag-filter" class="toolbar-select">
+      <option value="">All tags</option>
     </select>
     <label class="overdue-toggle">
       <input type="checkbox" id="overdue-only" />
