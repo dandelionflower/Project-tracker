@@ -7,7 +7,7 @@ function loadCategories() {
     const saved = localStorage.getItem('project-tracker-categories');
     if (saved) return JSON.parse(saved);
   } catch (e) {}
-  return ["Planning", "Data Gathering", "Testing and Deployment"];
+  return [];
 }
 
 function saveCategories() {
@@ -37,10 +37,10 @@ function loadTasks() {
     if (saved) return JSON.parse(saved);
   } catch (e) {}
   return [
-    { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", category: "Planning", start: "2026-06-28", due: "2026-07-01", progress: 100 },
-    { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", category: "Planning", start: "2026-07-02", due: "2026-07-16", progress: 60 },
-    { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", category: "Data Gathering", start: "2026-07-17", due: "2026-07-22", progress: 0 },
-    { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", category: "Testing and Deployment", start: "2026-07-05", due: "2026-07-10", progress: 20 }
+    { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", start: "2026-06-28", due: "2026-07-01", progress: 100 },
+    { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", start: "2026-07-02", due: "2026-07-16", progress: 60 },
+    { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", start: "2026-07-17", due: "2026-07-22", progress: 0 },
+    { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", start: "2026-07-05", due: "2026-07-10", progress: 20 }
   ];
 }
 
@@ -57,6 +57,34 @@ function saveTasks() {
 }
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+// View state — search/sort/filter/expanded panels are transient UI state,
+// not persisted, and don't touch the underlying tasks array or its indices.
+let searchQuery = '';
+let sortMode = 'none';
+let overdueOnly = false;
+const expandedTasks = new Set();
+
+function taskMatchesFilters(t) {
+  const q = searchQuery.trim().toLowerCase();
+  const matchesSearch = !q || t.task.toLowerCase().includes(q) || (t.owner || '').toLowerCase().includes(q);
+  const isOverdue = t.due && t.due < todayStr() && t.status !== 'Done';
+  const matchesOverdue = !overdueOnly || isOverdue;
+  return matchesSearch && matchesOverdue;
+}
+
+function sortIndices(indices) {
+  const arr = [...indices];
+  const priorityRank = { High: 0, Medium: 1, Low: 2 };
+  if (sortMode === 'due') {
+    arr.sort((a, b) => (tasks[a].due || '9999').localeCompare(tasks[b].due || '9999'));
+  } else if (sortMode === 'priority') {
+    arr.sort((a, b) => priorityRank[tasks[a].priority] - priorityRank[tasks[b].priority]);
+  } else if (sortMode === 'progress') {
+    arr.sort((a, b) => tasks[a].progress - tasks[b].progress);
+  }
+  return arr;
+}
 
 function render() {
   const rowsEl = document.getElementById('rows');
@@ -75,16 +103,15 @@ function render() {
   allGroups.forEach(group => {
     const header = document.createElement('tr');
     header.className = 'group-header';
-    const count = group.indices.length;
-    const avg = count
-      ? Math.round(group.indices.reduce((s, i) => s + Number(tasks[i].progress), 0) / count)
-      : 0;
+    const y = group.indices.length;
+    const x = group.indices.filter(i => tasks[i].status === 'Done').length;
+    const pct = y ? Math.round((x / y) * 100) : 0;
     header.innerHTML = `
       <td colspan="9">
         <div class="group-header-inner">
           <span class="group-name">${group.name}</span>
           <span class="group-meta">
-            ${count} task${count === 1 ? '' : 's'} &middot; ${avg}% avg
+            ${y ? `[${x}/${y}] ${pct}%` : 'No tasks'}
             ${group.deletable ? `<button class="del-category-btn" data-category="${group.name}" aria-label="Delete category ${group.name}">&times;</button>` : ''}
           </span>
         </div>
@@ -92,16 +119,32 @@ function render() {
     `;
     rowsEl.appendChild(header);
 
-    group.indices.forEach(i => {
+    const visibleIndices = sortIndices(group.indices.filter(i => taskMatchesFilters(tasks[i])));
+
+    if (!visibleIndices.length) {
+      const empty = document.createElement('tr');
+      empty.innerHTML = `<td colspan="9" class="no-matches">No matching tasks</td>`;
+      rowsEl.appendChild(empty);
+    }
+
+    visibleIndices.forEach(i => {
       const t = tasks[i];
       const tr = document.createElement('tr');
       tr.className = 'rail';
       tr.style.setProperty('--row-color', STATUS[t.status]);
       const isOverdue = t.due && t.due < todayStr() && t.status !== 'Done';
+      const subtasks = t.subtasks || [];
+      const doneCount = subtasks.filter(s => s.done).length;
+      const isExpanded = expandedTasks.has(i);
 
       tr.innerHTML = `
         <td>
-          <input type="text" value="${t.task}" data-i="${i}" data-f="task" />
+          <div class="task-cell">
+            <input type="text" value="${t.task}" data-i="${i}" data-f="task" />
+            <button class="subtask-toggle ${isExpanded ? 'open' : ''}" data-i="${i}" data-action="toggle-subtasks">
+              ${subtasks.length ? `${doneCount}/${subtasks.length} subtasks` : '+ subtasks'}
+            </button>
+          </div>
         </td>
         <td><input type="text" value="${t.owner}" data-i="${i}" data-f="owner" /></td>
         <td>
@@ -135,12 +178,36 @@ function render() {
         <td><button class="del-btn" data-i="${i}" aria-label="Delete task">&times;</button></td>
       `;
       rowsEl.appendChild(tr);
+
+      if (isExpanded) {
+        const panel = document.createElement('tr');
+        panel.className = 'subtask-panel-row';
+        panel.innerHTML = `
+          <td colspan="9">
+            <div class="subtask-panel">
+              ${subtasks.map((s, si) => `
+                <div class="subtask-item">
+                  <input type="checkbox" data-i="${i}" data-si="${si}" data-action="toggle-subtask" ${s.done ? 'checked' : ''} />
+                  <span class="${s.done ? 'subtask-done' : ''}">${s.text}</span>
+                  <button data-i="${i}" data-si="${si}" data-action="delete-subtask" aria-label="Delete subtask">&times;</button>
+                </div>
+              `).join('')}
+              <div class="subtask-add">
+                <input type="text" placeholder="Add a subtask…" data-i="${i}" class="subtask-input" />
+                <button data-i="${i}" data-action="add-subtask">Add</button>
+              </div>
+            </div>
+          </td>
+        `;
+        rowsEl.appendChild(panel);
+      }
     });
   });
 
   updateSummary();
 
   rowsEl.querySelectorAll('input, select').forEach(el => {
+    if (!el.dataset.f) return; // subtask controls etc. are wired separately below
     el.addEventListener('input', e => {
       const i = Number(e.target.dataset.i), f = e.target.dataset.f;
       tasks[i][f] = f === 'progress' ? Number(e.target.value) : e.target.value;
@@ -215,6 +282,57 @@ function render() {
       render();
     });
   });
+
+  rowsEl.querySelectorAll('[data-action="toggle-subtasks"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      if (expandedTasks.has(i)) expandedTasks.delete(i); else expandedTasks.add(i);
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="toggle-subtask"]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const i = Number(e.target.dataset.i), si = Number(e.target.dataset.si);
+      tasks[i].subtasks[si].done = e.target.checked;
+      saveTasks();
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="delete-subtask"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i), si = Number(e.currentTarget.dataset.si);
+      tasks[i].subtasks.splice(si, 1);
+      saveTasks();
+      render();
+    });
+  });
+
+  function submitSubtask(i, inputEl) {
+    const text = inputEl.value.trim();
+    if (!text) return;
+    if (!tasks[i].subtasks) tasks[i].subtasks = [];
+    tasks[i].subtasks.push({ text, done: false });
+    saveTasks();
+    render();
+  }
+
+  rowsEl.querySelectorAll('[data-action="add-subtask"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      const input = e.currentTarget.parentElement.querySelector('.subtask-input');
+      submitSubtask(i, input);
+    });
+  });
+
+  rowsEl.querySelectorAll('.subtask-input').forEach(input => {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        submitSubtask(Number(e.target.dataset.i), e.target);
+      }
+    });
+  });
 }
 
 function updateSummary() {
@@ -227,47 +345,71 @@ function updateSummary() {
   document.getElementById('task-count').textContent = total;
   document.getElementById('updated').textContent = 'as of ' + todayStr();
 
-  const distBar = document.getElementById('dist-bar');
-  const distLegend = document.getElementById('dist-legend');
-  distBar.innerHTML = '';
-  distLegend.innerHTML = '';
+  const statusList = document.getElementById('status-progress-list');
+  statusList.innerHTML = '';
   Object.keys(STATUS).forEach(s => {
     const count = tasks.filter(t => t.status === s).length;
-    const pct = total ? (count / total) * 100 : 0;
-    const seg = document.createElement('div');
-    seg.style.width = pct + '%';
-    seg.style.background = STATUS[s];
-    distBar.appendChild(seg);
-
-    const item = document.createElement('span');
-    item.innerHTML = `<span class="dot" style="background:${STATUS[s]}"></span>${s} (${count})`;
-    distLegend.appendChild(item);
+    const pct = total ? Math.round((count / total) * 100) : 0;
+    const row = document.createElement('div');
+    row.className = 'cat-progress-row';
+    row.style.setProperty('--cat-color', STATUS[s]);
+    row.innerHTML = `
+      <div class="cat-progress-fill" style="width:${count ? pct : 0}%;"></div>
+      <div class="cat-progress-label">
+        <span>${s}</span>
+        <span>${count ? `[${count}/${total}] ${pct}%` : 'No tasks'}</span>
+      </div>
+    `;
+    statusList.appendChild(row);
   });
 
-  const distBarCat = document.getElementById('dist-bar-cat');
-  const distLegendCat = document.getElementById('dist-legend-cat');
-  distBarCat.innerHTML = '';
-  distLegendCat.innerHTML = '';
+  const progressList = document.getElementById('category-progress-list');
+  progressList.innerHTML = '';
   const catNames = [...categories];
   const uncategorizedCount = tasks.filter(t => !categories.includes(t.category)).length;
   if (uncategorizedCount) catNames.push('Uncategorized');
 
   catNames.forEach((name, idx) => {
-    const count = name === 'Uncategorized'
-      ? uncategorizedCount
-      : tasks.filter(t => t.category === name).length;
-    const pct = total ? (count / total) * 100 : 0;
+    const inCategory = name === 'Uncategorized'
+      ? tasks.filter(t => !categories.includes(t.category))
+      : tasks.filter(t => t.category === name);
+    const y = inCategory.length;
+    const x = inCategory.filter(t => t.status === 'Done').length;
+    const pct = y ? Math.round((x / y) * 100) : 0;
     const color = CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
-    const seg = document.createElement('div');
-    seg.style.width = pct + '%';
-    seg.style.background = color;
-    distBarCat.appendChild(seg);
 
-    const item = document.createElement('span');
-    item.innerHTML = `<span class="dot" style="background:${color}"></span>${name} (${count})`;
-    distLegendCat.appendChild(item);
+    const row = document.createElement('div');
+    row.className = 'cat-progress-row';
+    row.style.setProperty('--cat-color', color);
+    row.innerHTML = `
+      <div class="cat-progress-fill" style="width:${y ? pct : 0}%;"></div>
+      <div class="cat-progress-label">
+        <span>${name}</span>
+        <span>${y ? `[${x}/${y}] ${pct}%` : 'No tasks'}</span>
+      </div>
+    `;
+    progressList.appendChild(row);
   });
+
+  if (!catNames.length) {
+    progressList.innerHTML = '<p class="cat-empty">No categories yet — add one to see progress here.</p>';
+  }
 }
+
+document.getElementById('search-input').addEventListener('input', e => {
+  searchQuery = e.target.value;
+  render();
+});
+
+document.getElementById('sort-select').addEventListener('change', e => {
+  sortMode = e.target.value;
+  render();
+});
+
+document.getElementById('overdue-only').addEventListener('change', e => {
+  overdueOnly = e.target.checked;
+  render();
+});
 
 document.getElementById('add-category').addEventListener('click', () => {
   const name = window.prompt('New category name:');
