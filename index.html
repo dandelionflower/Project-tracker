@@ -193,6 +193,14 @@
   tbody tr { border-bottom: 1px solid var(--border); position: relative; }
   tbody tr:last-child { border-bottom: none; }
   tbody tr.rail { box-shadow: inset 4px 0 0 0 var(--row-color); }
+  tbody tr.rail.is-blocked {
+    background: color-mix(in srgb, var(--blocked) 5%, var(--surface));
+    filter: grayscale(0.55);
+    opacity: 0.6;
+    transition: opacity 0.15s ease, filter 0.15s ease;
+  }
+  tbody tr.rail.is-blocked:hover { opacity: 0.9; filter: grayscale(0.25); }
+  tbody tr.rail.is-blocked .task-cell input[type="text"] { color: var(--ink-faint); }
   tbody td { padding: 8px 14px; vertical-align: middle; }
 
   input[type="text"], input[type="date"], select {
