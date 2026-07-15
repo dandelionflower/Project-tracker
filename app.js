@@ -109,7 +109,8 @@ function refreshProjectHeader() {
   const project = getActiveProject();
   document.getElementById('project-name-input').value = project.name;
   const switcher = document.getElementById('project-switcher');
-  switcher.innerHTML = projects.map(p => `<option value="${p.id}" ${p.id === activeProjectId ? 'selected' : ''}>${p.name}</option>`).join('');
+  switcher.innerHTML = activeProjects().map(p => `<option value="${p.id}" ${p.id === activeProjectId ? 'selected' : ''}>${p.name}</option>`).join('');
+  updateArchivedBtn();
 }
 
 function switchToProject(id) {
@@ -142,26 +143,90 @@ function renameActiveProject(newName) {
   const trimmed = newName.trim();
   if (!trimmed) { refreshProjectHeader(); return; } // revert to current name if cleared
   const project = getActiveProject();
+  if (trimmed === project.name) return; // no actual change
+  const oldName = project.name;
   project.name = trimmed;
   saveProjects();
+  logActivity(`Project renamed from "${oldName}" to "${trimmed}"`);
   refreshProjectHeader();
 }
 
+function activeProjects() {
+  return projects.filter(p => !p.archived);
+}
+
+function archivedProjects() {
+  return projects.filter(p => p.archived);
+}
+
+// "Delete" a project no longer erases its data. It archives the project
+// instead — the task/category/activity data stays in localStorage under the
+// project's id, the project just drops out of the switcher and the active
+// list, and can be restored (or truly deleted) later from the Archived list.
 function deleteActiveProject() {
-  if (projects.length <= 1) {
-    alert("You can't delete your only project. Create another one first.");
+  if (activeProjects().length <= 1) {
+    alert("You can't archive your only active project. Create another one first.");
     return;
   }
   const project = getActiveProject();
-  if (!confirm(`Delete project "${project.name}" and all of its tasks? This can't be undone.`)) return;
+  if (!confirm(`Archive project "${project.name}"? Its data will be kept, and you can restore it anytime from the 🗃 Archived list.`)) return;
 
-  localStorage.removeItem(`project-tracker-tasks-${project.id}`);
-  localStorage.removeItem(`project-tracker-categories-${project.id}`);
-  localStorage.removeItem(`project-tracker-activities-${project.id}`);
-
-  projects = projects.filter(p => p.id !== project.id);
+  project.archived = true;
+  logActivity(`Project "${project.name}" archived`);
   saveProjects();
-  switchToProject(projects[0].id);
+
+  const nextProject = activeProjects()[0];
+  switchToProject(nextProject.id);
+  updateArchivedBtn();
+}
+
+// Prompt-based flow: pick an archived project by number, then choose to
+// restore it (bring it back to the active list) or permanently delete it
+// (the only way its data actually gets erased).
+function openArchivedProjects() {
+  const archived = archivedProjects();
+  if (!archived.length) {
+    alert('No archived projects yet. Use 🗑 Delete on a project to archive it.');
+    return;
+  }
+
+  const list = archived.map((p, idx) => `${idx + 1}. ${p.name}`).join('\n');
+  const choice = window.prompt(`Archived projects:\n${list}\n\nEnter a number to choose one:`);
+  if (!choice) return;
+  const idx = parseInt(choice, 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= archived.length) {
+    alert('Not a valid number.');
+    return;
+  }
+  const project = archived[idx];
+
+  const action = window.prompt(`"${project.name}" — type "restore" to bring it back, or "delete" to permanently erase it and its data (cannot be undone):`);
+  if (!action) return;
+  const normalized = action.trim().toLowerCase();
+
+  if (normalized === 'restore' || normalized === 'r') {
+    project.archived = false;
+    saveProjects();
+    updateArchivedBtn();
+    switchToProject(project.id);
+  } else if (normalized === 'delete' || normalized === 'd') {
+    if (!confirm(`Permanently delete "${project.name}" and all of its tasks? This can't be undone.`)) return;
+    localStorage.removeItem(`project-tracker-tasks-${project.id}`);
+    localStorage.removeItem(`project-tracker-categories-${project.id}`);
+    localStorage.removeItem(`project-tracker-activities-${project.id}`);
+    projects = projects.filter(p => p.id !== project.id);
+    saveProjects();
+    updateArchivedBtn();
+  }
+}
+
+function updateArchivedBtn() {
+  const btn = document.getElementById('archived-projects-btn');
+  const badge = document.getElementById('archived-badge');
+  if (!btn || !badge) return;
+  const count = archivedProjects().length;
+  badge.textContent = count;
+  badge.style.display = count ? 'inline-flex' : 'none';
 }
 
 let categories = loadCategories();
@@ -228,12 +293,15 @@ function addDays(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
+// Recurring tasks always repeat on a fixed weekly cadence — regardless of
+// how long the original task's own start-to-due span happened to be. A task
+// created with start === due (the default for any newly added task) should
+// still recur weekly, not daily.
+const RECURRENCE_CYCLE_DAYS = 7;
+
 function createRecurringClone(t) {
-  const durationDays = (t.start && t.due)
-    ? Math.max(1, Math.round((new Date(t.due) - new Date(t.start)) / (1000 * 60 * 60 * 24)))
-    : 7;
   const newStart = t.due || todayStr();
-  const newDue = addDays(newStart, durationDays);
+  const newDue = addDays(newStart, RECURRENCE_CYCLE_DAYS);
   return {
     ...t,
     id: makeId(),
@@ -1108,8 +1176,18 @@ document.getElementById('select-all').addEventListener('change', e => {
 
 document.getElementById('bulk-done-btn').addEventListener('click', () => {
   const affected = tasks.filter(t => selectedTaskIds.has(t.id));
-  affected.forEach(t => { t.status = 'Done'; t.progress = 100; });
+  const clones = [];
+  affected.forEach(t => {
+    const wasNotDone = t.status !== 'Done';
+    t.status = 'Done';
+    t.progress = 100;
+    if (wasNotDone && t.recurring) {
+      clones.push(createRecurringClone(t));
+    }
+  });
+  if (clones.length) tasks.push(...clones);
   logActivity(`Marked ${affected.length} task${affected.length === 1 ? '' : 's'} as Done`);
+  clones.forEach(clone => logActivity(`Recurring task "${clone.task}" scheduled for next cycle`));
   selectedTaskIds.clear();
   saveTasks();
   render();
@@ -1213,16 +1291,14 @@ document.getElementById('project-switcher').addEventListener('change', e => {
 });
 document.getElementById('new-project-btn').addEventListener('click', createNewProject);
 document.getElementById('delete-project-btn').addEventListener('click', deleteActiveProject);
+document.getElementById('archived-projects-btn').addEventListener('click', openArchivedProjects);
 
 // --- Calendar view ---------------------------------------------------------
 let calendarMonth = new Date().getMonth();
 let calendarYear = new Date().getFullYear();
 
 function getRecurrenceCycleDays(t) {
-  if (t.start && t.due) {
-    return Math.max(1, Math.round((new Date(t.due) - new Date(t.start)) / (1000 * 60 * 60 * 24)));
-  }
-  return 7;
+  return RECURRENCE_CYCLE_DAYS;
 }
 
 // A recurring task only becomes a real new row once you mark the current
@@ -1329,7 +1405,8 @@ let dismissedAlertIds = new Set();
 
 const notifyBtn = document.getElementById('notify-btn');
 function updateNotifyBtn() {
-  notifyBtn.textContent = notificationsEnabled ? '🔔 Due alerts: on' : '🔔 Due alerts: off';
+  notifyBtn.classList.toggle('alarm-on', notificationsEnabled);
+  notifyBtn.title = notificationsEnabled ? 'Due alerts: on (click to turn off)' : 'Due alerts: off (click to turn on)';
 }
 updateNotifyBtn();
 
