@@ -420,6 +420,10 @@ function sortIndices(indices) {
   return arr;
 }
 
+function ganttLightFill(colorVar) {
+  return `color-mix(in srgb, ${colorVar} 28%, var(--surface))`;
+}
+
 function renderGanttChart() {
   const ganttEl = document.getElementById('gantt-chart');
   if (!ganttEl) return;
@@ -431,84 +435,136 @@ function renderGanttChart() {
     return;
   }
 
+  // Chronological order reads best for a dependency chain.
+  const rows = [...tasksWithDates].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : (a.due < b.due ? -1 : 1)));
+
   const allDates = tasksWithDates.flatMap(t => [t.start, t.due]);
   const minDate = new Date(Math.min(...allDates.map(d => new Date(d))));
   const maxDate = new Date(Math.max(...allDates.map(d => new Date(d))));
-  const dayCount = Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24)) + 1;
+  const dayCount = Math.round((maxDate - minDate) / (1000 * 60 * 60 * 24)) + 1;
+
+  const dayWidth = dayCount > 60 ? 14 : dayCount > 34 ? 20 : 32;
+  const labelWidth = 170;
+  const chartLeft = labelWidth;
+  const chartWidth = dayCount * dayWidth;
+  const totalWidth = chartLeft + chartWidth + 4;
+
+  const headerH1 = 22, headerH2 = 22;
+  const headerHeight = headerH1 + headerH2;
+  const rowHeight = 34;
+  const barHeight = 20;
+  const totalRows = rows.length + 1; // +1 for the overall summary row
+  const totalHeight = headerHeight + totalRows * rowHeight + 4;
+
+  const dayX = i => chartLeft + i * dayWidth;
+  const dateIndex = dateStr => Math.round((new Date(dateStr) - minDate) / (1000 * 60 * 60 * 24));
 
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', '100%');
-  svg.setAttribute('height', tasksWithDates.length * 30 + 60);
-  svg.setAttribute('style', 'font-family: Inter, sans-serif;');
+  svg.setAttribute('width', totalWidth);
+  svg.setAttribute('height', totalHeight);
+  svg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
+  svg.setAttribute('style', 'font-family: "Plus Jakarta Sans", sans-serif; display:block;');
 
-  const labelWidth = 200;
-  const chartLeft = labelWidth + 20;
-  const chartWidth = Math.max(800, dayCount * 8);
-  const totalWidth = chartLeft + chartWidth + 20;
-  svg.setAttribute('viewBox', `0 0 ${totalWidth} ${tasksWithDates.length * 30 + 60}`);
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  defs.innerHTML = `<marker id="gantt-arrowhead" markerWidth="7" markerHeight="7" refX="5.5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ink-faint)"></path></marker>`;
+  svg.appendChild(defs);
 
-  // Header
-  const headerBg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-  headerBg.setAttribute('width', totalWidth);
-  headerBg.setAttribute('height', 30);
-  headerBg.setAttribute('fill', 'var(--bg)');
-  svg.appendChild(headerBg);
+  const svgns = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs) => {
+    const n = document.createElementNS(svgns, tag);
+    Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
+    return n;
+  };
 
-  const headerText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  headerText.setAttribute('x', chartLeft + 10);
-  headerText.setAttribute('y', 20);
-  headerText.setAttribute('font-size', '12');
-  headerText.setAttribute('font-weight', '600');
-  headerText.setAttribute('fill', 'var(--ink-soft)');
-  headerText.textContent = minDate.toLocaleDateString() + ' to ' + maxDate.toLocaleDateString();
-  svg.appendChild(headerText);
+  // --- Header: week-range labels + day-of-month numbers ---------------
+  svg.appendChild(el('rect', { x: 0, y: 0, width: totalWidth, height: headerHeight, fill: 'var(--bg)' }));
 
-  // Bars
-  tasksWithDates.forEach((t, idx) => {
-    const y = 40 + idx * 30;
-    const startDate = new Date(t.start);
-    const dueDate = new Date(t.due);
-    const startOffset = Math.ceil((startDate - minDate) / (1000 * 60 * 60 * 24));
-    const duration = Math.ceil((dueDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
-    const barX = chartLeft + startOffset * 8;
-    const barWidth = Math.max(duration * 8, 20);
+  for (let i = 0; i < dayCount; i++) {
+    const d = new Date(minDate);
+    d.setDate(d.getDate() + i);
+    const x = dayX(i);
 
-    // Label
-    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    label.setAttribute('x', 10);
-    label.setAttribute('y', y + 18);
-    label.setAttribute('font-size', '11');
-    label.setAttribute('fill', 'var(--ink)');
-    label.textContent = t.task.substring(0, 25);
-    svg.appendChild(label);
-
-    // Bar
-    const bar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    bar.setAttribute('x', barX);
-    bar.setAttribute('y', y + 6);
-    bar.setAttribute('width', barWidth);
-    bar.setAttribute('height', 16);
-    bar.setAttribute('fill', STATUS[t.status]);
-    bar.setAttribute('opacity', t.status === 'Done' ? '0.6' : '1');
-    bar.setAttribute('rx', '4');
-    svg.appendChild(bar);
-
-    // Progress indicator
-    if (t.progress > 0 && t.progress < 100) {
-      const progressBar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      progressBar.setAttribute('x', barX);
-      progressBar.setAttribute('y', y + 6);
-      progressBar.setAttribute('width', (barWidth * t.progress) / 100);
-      progressBar.setAttribute('height', 16);
-      progressBar.setAttribute('fill', STATUS[t.status]);
-      progressBar.setAttribute('opacity', '0.3');
-      progressBar.setAttribute('rx', '4');
-      svg.appendChild(progressBar);
+    if (i % 7 === 0) {
+      const weekLabel = el('text', { x: x + 4, y: 15, 'font-size': 11, 'font-weight': 700, fill: 'var(--ink)' });
+      weekLabel.textContent = d.toISOString().slice(0, 10);
+      svg.appendChild(weekLabel);
+      svg.appendChild(el('line', { x1: x, y1: 0, x2: x, y2: totalHeight, stroke: 'var(--border)', 'stroke-width': 1 }));
     }
+
+    const dayLabel = el('text', { x: x + dayWidth / 2, y: headerH1 + 15, 'font-size': 11, 'font-weight': 600, 'text-anchor': 'middle', fill: 'var(--ink-soft)' });
+    dayLabel.textContent = d.getDate();
+    svg.appendChild(dayLabel);
+
+    svg.appendChild(el('line', { x1: x, y1: headerH1, x2: x, y2: totalHeight, stroke: 'var(--border)', 'stroke-width': 0.5, opacity: 0.6 }));
+  }
+  svg.appendChild(el('line', { x1: chartLeft, y1: headerHeight, x2: totalWidth, y2: headerHeight, stroke: 'var(--border)', 'stroke-width': 1 }));
+
+  // --- A two-tone rounded bar (or a diamond for zero-duration milestones) ---
+  function drawBar(rowIdx, startStr, dueStr, progress, colorVar, label, isSummary) {
+    const y = headerHeight + rowIdx * rowHeight;
+    const barY = y + (rowHeight - barHeight) / 2;
+    const startI = dateIndex(startStr);
+    const dueI = dateIndex(dueStr);
+    const barX = dayX(startI);
+    const barW = Math.max((dueI - startI + 1) * dayWidth, dayWidth * 0.9);
+
+    if (label !== null) {
+      const labelEl = el('text', { x: 8, y: y + rowHeight / 2 + 4, 'font-size': 12, 'font-weight': isSummary ? 700 : 500, fill: isSummary ? 'var(--ink)' : 'var(--ink-soft)' });
+      labelEl.textContent = label.length > 22 ? label.slice(0, 21) + '…' : label;
+      svg.appendChild(labelEl);
+    }
+
+    // Milestone: zero-duration task renders as a small diamond, not a bar.
+    if (!isSummary && startStr === dueStr) {
+      const cx = barX + dayWidth / 2, cy = y + rowHeight / 2, r = 7;
+      const diamond = el('polygon', {
+        points: `${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`,
+        fill: colorVar, stroke: 'var(--surface)', 'stroke-width': 1
+      });
+      svg.appendChild(diamond);
+      return { x: barX, endX: barX + dayWidth, y: cy, isMilestone: true };
+    }
+
+    const clipId = `gantt-clip-${isSummary ? 'summary' : rowIdx}`;
+    defs.innerHTML += `<clipPath id="${clipId}"><rect x="${barX}" y="${barY}" width="${barW}" height="${barHeight}" rx="6"></rect></clipPath>`;
+
+    svg.appendChild(el('rect', { x: barX, y: barY, width: barW, height: barHeight, rx: 6, fill: ganttLightFill(colorVar) }));
+    const filled = Math.max(0, Math.min(100, progress));
+    if (filled > 0) {
+      svg.appendChild(el('rect', { x: barX, y: barY, width: (barW * filled) / 100, height: barHeight, fill: colorVar, 'clip-path': `url(#${clipId})` }));
+    }
+
+    return { x: barX, endX: barX + barW, y: barY + barHeight / 2, isMilestone: false };
+  }
+
+  // --- Overall summary bar (row 0) --------------------------------------
+  const overallProgress = tasks.length ? Math.round(tasks.reduce((s, t) => s + Number(t.progress), 0) / tasks.length) : 0;
+  drawBar(0, minDate.toISOString().slice(0, 10), maxDate.toISOString().slice(0, 10), overallProgress, 'var(--ink-soft)', 'Overall', true);
+  svg.appendChild(el('line', { x1: chartLeft, y1: headerHeight + rowHeight, x2: totalWidth, y2: headerHeight + rowHeight, stroke: 'var(--border)', 'stroke-width': 1 }));
+
+  // --- Task bars ----------------------------------------------------------
+  const barGeom = {};
+  rows.forEach((t, idx) => {
+    const rowIdx = idx + 1; // offset by the summary row
+    barGeom[t.id] = drawBar(rowIdx, t.start, t.due, t.progress, STATUS[t.status], t.task, false);
+  });
+
+  // --- Dependency connectors: elbow line + arrowhead from dep → task -----
+  rows.forEach((t, idx) => {
+    const rowIdx = idx + 1;
+    (t.dependsOn || []).forEach(depId => {
+      const dep = barGeom[depId];
+      const target = barGeom[t.id];
+      if (!dep || !target) return;
+      const midX = dep.endX + 10;
+      const path = `M ${dep.endX} ${dep.y} H ${midX} V ${target.y} H ${target.x - 3}`;
+      svg.appendChild(el('path', { d: path, fill: 'none', stroke: 'var(--ink-faint)', 'stroke-width': 1.5, 'marker-end': 'url(#gantt-arrowhead)' }));
+    });
   });
 
   ganttEl.appendChild(svg);
 }
+
 
 function renderActivityFeed() {
   const feedEl = document.getElementById('activity-feed');
