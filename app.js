@@ -666,7 +666,7 @@ function render() {
     visibleIndices.forEach(i => {
       const t = tasks[i];
       const tr = document.createElement('tr');
-      tr.className = 'rail';
+      tr.className = 'rail' + (isBlocked(t) ? ' is-blocked' : '');
       tr.dataset.taskId = t.id;
       tr.style.setProperty('--row-color', STATUS[t.status]);
       const isOverdue = t.due && t.due < todayStr() && t.status !== 'Done';
@@ -1043,8 +1043,17 @@ function render() {
 
       tasks[i].dependsOn.push(depId);
       logActivity(`"${tasks[i].task}" now depends on "${depTask ? depTask.task : 'a task'}"`);
+
+      // A daughter task depending on an unfinished mother task is blocked
+      // right away — don't wait for the next status edit to reflect that.
+      if (depTask && depTask.status !== 'Done' && tasks[i].status !== 'Blocked') {
+        tasks[i].status = 'Blocked';
+        logActivity(`"${tasks[i].task}" automatically set to Blocked (waiting on "${depTask.task}")`);
+      }
+
       saveTasks();
       render();
+      renderGanttChart();
     });
   });
 
