@@ -15,12 +15,161 @@ function isBlocked(t) {
   return getDependencyTasks(t).some(dep => dep.status !== 'Done');
 }
 
+// --- Multi-project support -------------------------------------------------
+// Each project gets its own tasks/categories/activity log, stored under keys
+// suffixed with the project's id. A separate "projects" list (not scoped to
+// any project) tracks which projects exist and which one is active.
+
+function loadProjects() {
+  try {
+    const saved = localStorage.getItem('project-tracker-projects-list');
+    if (saved) return JSON.parse(saved);
+  } catch (e) {}
+  return [];
+}
+
+function saveProjects() {
+  try {
+    localStorage.setItem('project-tracker-projects-list', JSON.stringify(projects));
+  } catch (e) {}
+}
+
+function makeProjectId() {
+  return 'p_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+}
+
+function scopedKey(base) {
+  return `project-tracker-${base}-${activeProjectId}`;
+}
+
+// One-time migration: if this is the first time the new multi-project
+// system has run, wrap any existing (pre-multi-project) data in a default
+// project instead of silently losing it.
+function migrateToProjectsIfNeeded() {
+  const existingProjects = loadProjects();
+  if (existingProjects.length) return existingProjects;
+
+  const defaultId = makeProjectId();
+  const legacyTasks = localStorage.getItem('project-tracker-tasks');
+  const legacyCategories = localStorage.getItem('project-tracker-categories');
+  const legacyActivities = localStorage.getItem('project-tracker-activities');
+
+  if (legacyTasks) {
+    localStorage.setItem(`project-tracker-tasks-${defaultId}`, legacyTasks);
+  } else {
+    // Truly fresh install (never used the tracker before) — seed a friendly
+    // example project. Projects created later via "+ New project" start empty.
+    const sampleTasks = [
+      { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", start: "2026-06-28", due: "2026-07-01", progress: 100 },
+      { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", start: "2026-07-02", due: "2026-07-16", progress: 60 },
+      { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", start: "2026-07-17", due: "2026-07-22", progress: 0 },
+      { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", start: "2026-07-05", due: "2026-07-10", progress: 20 }
+    ];
+    localStorage.setItem(`project-tracker-tasks-${defaultId}`, JSON.stringify(sampleTasks));
+  }
+  if (legacyCategories) localStorage.setItem(`project-tracker-categories-${defaultId}`, legacyCategories);
+  if (legacyActivities) localStorage.setItem(`project-tracker-activities-${defaultId}`, legacyActivities);
+  // Clean up the old unscoped keys now that they've been copied forward.
+  localStorage.removeItem('project-tracker-tasks');
+  localStorage.removeItem('project-tracker-categories');
+  localStorage.removeItem('project-tracker-activities');
+
+  const initial = [{ id: defaultId, name: 'My Project' }];
+  localStorage.setItem('project-tracker-projects-list', JSON.stringify(initial));
+  localStorage.setItem('project-tracker-active-project', defaultId);
+  return initial;
+}
+
+let projects = migrateToProjectsIfNeeded();
+let activeProjectId = localStorage.getItem('project-tracker-active-project') || projects[0].id;
+if (!projects.some(p => p.id === activeProjectId)) activeProjectId = projects[0].id;
+
+function getActiveProject() {
+  return projects.find(p => p.id === activeProjectId) || projects[0];
+}
+
+function resetTransientViewState() {
+  searchQuery = '';
+  sortMode = 'none';
+  overdueOnly = false;
+  starredOnly = false;
+  tagFilter = '';
+  expandedTasks.clear();
+  expandedDeps.clear();
+  expandedNotes.clear();
+  selectedTaskIds.clear();
+  dismissedAlertIds = new Set();
+  document.getElementById('search-input').value = '';
+  document.getElementById('sort-select').value = 'none';
+  document.getElementById('overdue-only').checked = false;
+  document.getElementById('starred-only').checked = false;
+}
+
+function refreshProjectHeader() {
+  const project = getActiveProject();
+  document.getElementById('project-name-input').value = project.name;
+  const switcher = document.getElementById('project-switcher');
+  switcher.innerHTML = projects.map(p => `<option value="${p.id}" ${p.id === activeProjectId ? 'selected' : ''}>${p.name}</option>`).join('');
+}
+
+function switchToProject(id) {
+  if (id === activeProjectId) return;
+  activeProjectId = id;
+  localStorage.setItem('project-tracker-active-project', activeProjectId);
+
+  tasks = loadTasks();
+  categories = loadCategories();
+  activities = loadActivities();
+  resetTransientViewState();
+
+  refreshProjectHeader();
+  render();
+  renderGanttChart();
+  renderActivityFeed();
+  if (typeof checkDueSoon === 'function') checkDueSoon();
+}
+
+function createNewProject() {
+  const name = window.prompt('New project name:', 'Untitled Project');
+  if (!name || !name.trim()) return;
+  const project = { id: makeProjectId(), name: name.trim() };
+  projects.push(project);
+  saveProjects();
+  switchToProject(project.id);
+}
+
+function renameActiveProject(newName) {
+  const trimmed = newName.trim();
+  if (!trimmed) { refreshProjectHeader(); return; } // revert to current name if cleared
+  const project = getActiveProject();
+  project.name = trimmed;
+  saveProjects();
+  refreshProjectHeader();
+}
+
+function deleteActiveProject() {
+  if (projects.length <= 1) {
+    alert("You can't delete your only project. Create another one first.");
+    return;
+  }
+  const project = getActiveProject();
+  if (!confirm(`Delete project "${project.name}" and all of its tasks? This can't be undone.`)) return;
+
+  localStorage.removeItem(`project-tracker-tasks-${project.id}`);
+  localStorage.removeItem(`project-tracker-categories-${project.id}`);
+  localStorage.removeItem(`project-tracker-activities-${project.id}`);
+
+  projects = projects.filter(p => p.id !== project.id);
+  saveProjects();
+  switchToProject(projects[0].id);
+}
+
 let categories = loadCategories();
 let activities = loadActivities();
 
 function loadCategories() {
   try {
-    const saved = localStorage.getItem('project-tracker-categories');
+    const saved = localStorage.getItem(scopedKey('categories'));
     if (saved) return JSON.parse(saved);
   } catch (e) {}
   return [];
@@ -28,13 +177,13 @@ function loadCategories() {
 
 function saveCategories() {
   try {
-    localStorage.setItem('project-tracker-categories', JSON.stringify(categories));
+    localStorage.setItem(scopedKey('categories'), JSON.stringify(categories));
   } catch (e) {}
 }
 
 function loadActivities() {
   try {
-    const saved = localStorage.getItem('project-tracker-activities');
+    const saved = localStorage.getItem(scopedKey('activities'));
     if (saved) return JSON.parse(saved);
   } catch (e) {}
   return [];
@@ -42,7 +191,7 @@ function loadActivities() {
 
 function saveActivities() {
   try {
-    localStorage.setItem('project-tracker-activities', JSON.stringify(activities));
+    localStorage.setItem(scopedKey('activities'), JSON.stringify(activities));
   } catch (e) {}
 }
 
@@ -103,20 +252,15 @@ tasks.forEach(t => { if (!t.id) t.id = makeId(); });
 
 function loadTasks() {
   try {
-    const saved = localStorage.getItem('project-tracker-tasks');
+    const saved = localStorage.getItem(scopedKey('tasks'));
     if (saved) return JSON.parse(saved);
   } catch (e) {}
-  return [
-    { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", start: "2026-06-28", due: "2026-07-01", progress: 100 },
-    { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", start: "2026-07-02", due: "2026-07-16", progress: 60 },
-    { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", start: "2026-07-17", due: "2026-07-22", progress: 0 },
-    { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", start: "2026-07-05", due: "2026-07-10", progress: 20 }
-  ];
+  return [];
 }
 
 function saveTasks() {
   try {
-    localStorage.setItem('project-tracker-tasks', JSON.stringify(tasks));
+    localStorage.setItem(scopedKey('tasks'), JSON.stringify(tasks));
     const el = document.getElementById('save-status');
     if (el) {
       el.textContent = 'saved';
@@ -1052,13 +1196,45 @@ document.getElementById('export-btn').addEventListener('click', () => {
   logActivity('Project data exported to Excel');
 });
 
+refreshProjectHeader();
 render();
 renderGanttChart();
 renderActivityFeed();
 
+// --- Project switcher wiring ------------------------------------------------
+document.getElementById('project-name-input').addEventListener('blur', e => {
+  renameActiveProject(e.target.value);
+});
+document.getElementById('project-name-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') e.target.blur();
+});
+document.getElementById('project-switcher').addEventListener('change', e => {
+  switchToProject(e.target.value);
+});
+document.getElementById('new-project-btn').addEventListener('click', createNewProject);
+document.getElementById('delete-project-btn').addEventListener('click', deleteActiveProject);
+
 // --- Calendar view ---------------------------------------------------------
 let calendarMonth = new Date().getMonth();
 let calendarYear = new Date().getFullYear();
+
+function getRecurrenceCycleDays(t) {
+  if (t.start && t.due) {
+    return Math.max(1, Math.round((new Date(t.due) - new Date(t.start)) / (1000 * 60 * 60 * 24)));
+  }
+  return 7;
+}
+
+// A recurring task only becomes a real new row once you mark the current
+// instance Done. Until then, project where it *will* land on future weeks
+// so the calendar reflects the weekly pattern proactively, not retroactively.
+function isProjectedRecurrence(t, dateStr) {
+  if (!t.recurring || !t.due || t.status === 'Done') return false;
+  if (dateStr <= t.due) return false;
+  const cycle = getRecurrenceCycleDays(t);
+  const diffDays = Math.round((new Date(dateStr) - new Date(t.due)) / (1000 * 60 * 60 * 24));
+  return diffDays > 0 && diffDays % cycle === 0;
+}
 
 function renderCalendar() {
   const grid = document.getElementById('calendar-grid');
@@ -1099,14 +1275,19 @@ function renderCalendar() {
     dayEl.className = 'cal-day' + (otherMonth ? ' other-month' : '') + (dateStr === today ? ' today' : '');
 
     const dueTasks = tasks.filter(t => t.due === dateStr);
-    const shown = dueTasks.slice(0, 3);
-    const extra = dueTasks.length - shown.length;
+    const projected = tasks.filter(t => isProjectedRecurrence(t, dateStr));
+    const allForDay = [...dueTasks, ...projected];
+    const shown = allForDay.slice(0, 3);
+    const extra = allForDay.length - shown.length;
 
     dayEl.innerHTML = `
       <span class="cal-day-num">${cellDate.getDate()}</span>
       ${shown.map(t => {
-        const isOverdue = t.due < today && t.status !== 'Done';
-        return `<span class="cal-task-chip ${isOverdue ? 'overdue-chip' : ''}" style="background:${STATUS[t.status]};" title="${t.task} — ${t.status}">${t.task}</span>`;
+        const isProjectedOnly = !dueTasks.includes(t);
+        const isOverdue = !isProjectedOnly && t.due < today && t.status !== 'Done';
+        const label = isProjectedOnly ? `🔁 ${t.task}` : t.task;
+        const title = isProjectedOnly ? `${t.task} — projected weekly recurrence` : `${t.task} — ${t.status}`;
+        return `<span class="cal-task-chip ${isOverdue ? 'overdue-chip' : ''} ${isProjectedOnly ? 'projected-chip' : ''}" style="background:${STATUS[t.status]};" title="${title}">${label}</span>`;
       }).join('')}
       ${extra > 0 ? `<span class="cal-more">+${extra} more</span>` : ''}
     `;
