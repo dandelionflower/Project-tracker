@@ -1406,7 +1406,6 @@ let dismissedAlertIds = new Set();
 const notifyBtn = document.getElementById('notify-btn');
 function updateNotifyBtn() {
   notifyBtn.classList.toggle('alarm-on', notificationsEnabled);
-  notifyBtn.title = notificationsEnabled ? 'Due alerts: on (click to turn off)' : 'Due alerts: off (click to turn on)';
 }
 updateNotifyBtn();
 
