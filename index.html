@@ -268,6 +268,56 @@
   }
   .theme-toggle:hover { color: var(--ink); border-color: var(--ink-faint); }
 
+  .notify-toggle {
+    position: relative;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-soft);
+    border-radius: 999px;
+    width: 34px; height: 34px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    font-size: 15px;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  }
+  .notify-toggle:hover { color: var(--ink); border-color: var(--ink-faint); }
+  .notify-toggle.alarm-on {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+  }
+  .notify-toggle.alarm-on:hover { color: var(--accent); border-color: var(--accent); }
+  .notify-toggle.alarm-on::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 999px;
+    border: 1.5px solid var(--accent);
+    opacity: 0;
+    pointer-events: none;
+  }
+  .notify-toggle.alarm-on:hover::after {
+    animation: notify-ring 0.9s ease-out;
+  }
+  @keyframes notify-ring {
+    0% { opacity: 0.7; transform: scale(0.8); }
+    100% { opacity: 0; transform: scale(1.35); }
+  }
+
+  .archived-btn { display: inline-flex; align-items: center; gap: 5px; }
+  .archived-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 16px; height: 16px; padding: 0 4px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
   .export-btn {
     border: 1px solid var(--border);
     background: var(--surface);
@@ -806,7 +856,7 @@
 
   @media print {
     body { background: white; padding: 0; }
-    .toolbar, .add-row, .theme-toggle, .export-btn, .subtask-toggle,
+    .toolbar, .add-row, .theme-toggle, .export-btn, .notify-toggle, .subtask-toggle,
     .recurring-toggle, .drag-handle, .del-btn, .del-category-btn,
     .gantt-container, .activity-feed, input[type="range"],
     .view-toggle-row, .bulk-action-bar, .row-select, #calendar-view,
@@ -831,7 +881,8 @@
         <input type="text" id="project-name-input" class="project-name-input" value="" aria-label="Project name" />
         <select id="project-switcher" class="project-switcher" aria-label="Switch project"></select>
         <button id="new-project-btn" class="project-btn" title="New project">+ New project</button>
-        <button id="delete-project-btn" class="project-btn project-btn-danger" title="Delete this project">🗑</button>
+        <button id="delete-project-btn" class="project-btn project-btn-danger" title="Archive this project (data is kept, restore anytime)">🗑 Delete</button>
+        <button id="archived-projects-btn" class="project-btn archived-btn" title="View archived projects">🗃 Archived<span class="archived-badge" id="archived-badge" style="display:none;">0</span></button>
       </div>
       <p class="subtitle">Project Tracker with Local Storage, Gantt Chart & Activity Feed.</p>
     </div>
@@ -839,11 +890,11 @@
       <span class="save-status" id="save-status"></span>
       <button class="export-btn" id="export-btn">⬇ Export to Excel</button>
       <button class="export-btn" id="print-btn">🖨 Print report</button>
-      <button class="export-btn" id="notify-btn">🔔 Due alerts: off</button>
       <button class="export-btn" id="json-export-btn">⬇ Backup (JSON)</button>
       <button class="export-btn" id="json-import-btn">⬆ Restore (JSON)</button>
       <input type="file" id="json-import-input" accept="application/json" style="display:none;" />
       <div class="updated" id="updated"></div>
+      <button class="notify-toggle" id="notify-btn" title="Due alerts: off (click to turn on)" aria-label="Toggle due alerts">🔔</button>
       <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode">🌙</button>
     </div>
   </header>
