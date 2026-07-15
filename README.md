@@ -1,110 +1,99 @@
 # Project Tracker
 
-A lightweight, modern project tracking dashboard with local storage persistence. Track tasks, monitor progress, and manage project statuses with an intuitive interface.
+A lightweight, client-side project tracker with tasks, subtasks, categories, an Activity Feed, and an SVG Gantt chart. No server required — data is stored in the browser's localStorage.
 
-## 🌐 Live Demo
-
-**[View Live Demo](https://dandelionflower.github.io/Project-tracker/)**
-
-Try it out directly in your browser with sample data. All changes are saved to your browser's local storage.
+Website Demo: https://dandelionflower.github.io/Project-tracker/
 
 ## Features
 
-- **Real-time Dashboard**: View overall progress, overdue tasks, and status breakdown
-- **Task Management**: Create, edit, and delete tasks with ease
-- **Progress Tracking**: Visual progress bars with percentage indicators
-- **Status Management**: Track tasks as Not started, In progress, Blocked, or Done
-- **Priority Levels**: Assign High, Medium, or Low priority to each task
-- **Date Management**: Set start and due dates with overdue detection
-- **Dark Mode**: Toggle between light and dark themes
-- **Auto-save**: Changes are automatically saved to browser's local storage
-- **Excel Export**: Export your project data to Excel with formatting
+- Dashboard: overall progress, overdue count, status breakdown  
+- Task management: create, edit, delete tasks and subtasks  
+- Inline editing for task fields (name, owner, status, priority, dates)  
+- Progress tracking with slider and percentage display  
+- Categories with per-category progress and delete/move-to-uncategorized behavior  
+- Activity Feed: timestamped action log (create/edit/delete/status/progress)  
+- SVG Gantt chart: task timelines with progress overlays  
+- Export to Excel (XLSX) for backup and reporting  
+- Light/Dark theme toggle  
+- Data persisted locally via localStorage
 
-## Getting Started
-
-### Installation
+## Quick Start
 
 1. Clone the repository:
-```bash
-git clone https://github.com/dandelionflower/project-tracker.git
-cd project-tracker
-```
+   git clone https://github.com/dandelionflower/project-tracker.git
+   cd project-tracker
 
-2. Open `index.html` in your web browser or serve with a local server:
-```bash
-# Using Python 3
-python -m http.server 8000
+2. Serve locally (recommended) or open `index.html` directly:
+   - Python:
+     python -m http.server 8000
+   - Node:
+     npx http-server
+   - PHP:
+     php -S localhost:8000
 
-# Using Node.js
-npx http-server
-
-# Using PHP
-php -S localhost:8000
-```
-
-3. Visit `http://localhost:8000` in your browser
+3. Open http://localhost:8000 in your browser.
 
 ## Usage
 
-### Adding Tasks
-1. Click the **"+ Add task"** button at the bottom of the table
-2. Fill in task details (name, owner, status, priority, dates)
-3. Track progress with the visual progress bar
+- Add a category first (categories are used to group tasks).  
+- Click "+ Add task" to create a new task (requires at least one category).  
+- Edit fields inline; changes are auto-saved.  
+- Use the progress slider to update percentage; Gantt chart updates accordingly.  
+- Export current data to Excel using the Export button.
 
-### Managing Tasks
-- **Edit**: Click any field to edit inline
-- **Delete**: Click the × button to remove a task
-- **Export**: Click "Export to Excel" to download your project data
-- **Theme**: Toggle dark mode with the moon/sun button
+## Data & Storage
 
-### Data Persistence
-All your data is stored in the browser's local storage. Data persists across browser sessions but is local to that browser.
+Data is stored in browser localStorage under these keys:
+- project-tracker-tasks  
+- project-tracker-categories  
+- project-tracker-activities
+
+Data persists per browser/profile. Use "Export to Excel" to back up data.
 
 ## File Structure
 
 ```
 project-tracker/
-├── index.html      # Main HTML file with styles
-├── app.js          # Application logic and state management
-├── README.md       # This file
-└── LICENSE         # License information
+├── index.html         # Main UI and layout (includes gantt & activity containers)
+├── app.js             # Application logic: tasks, categories, activity logging, Gantt rendering
+├── README.md          # This file
+└── LICENSE            # MIT license
 ```
+
+(Experimental files may include: app.features.js, index.features.html — review before replacing app.js/index.html.)
 
 ## Technologies
 
-- **HTML5** - Semantic markup
-- **CSS3** - Modern styling with CSS variables for theming
-- **JavaScript** - Pure vanilla JS, no dependencies
-- **XLSX.js** - For Excel export functionality
-- **Local Storage API** - For data persistence
-
-## Color Scheme
-
-The app features a beautiful, accessible color scheme:
-- **Light Theme**: Clean white surfaces with soft grays
-- **Dark Theme**: Deep blues and grays for comfortable viewing
+- HTML5, CSS3 (CSS variables)  
+- Vanilla JavaScript (ES6+)  
+- XLSX.js for Excel export  
+- SVG for Gantt chart rendering  
+- LocalStorage API for persistence
 
 ## Browser Support
 
-- Chrome/Edge 90+
-- Firefox 88+
-- Safari 14+
-- Mobile browsers (iOS Safari, Chrome Mobile)
+Modern browsers:
+- Chrome, Edge, Firefox, Safari (recent versions)  
+- Mobile browsers supported, layout optimized for desktop
 
-## License
+## Troubleshooting
 
-MIT License - see LICENSE file for details
+- If "Add task" does nothing: ensure at least one category exists.  
+- If UI appears broken after editing files: clear browser cache and the localStorage keys listed above.  
+- Open browser DevTools (F12) → Console to inspect JavaScript errors; share console output for troubleshooting.
 
 ## Contributing
 
-Contributions are welcome! Feel free to fork, submit issues, and create pull requests.
+Contributions welcome. Fork the repo, open an issue, or submit a pull request. Include screenshots for UI changes and keep changes focused.
 
 ## Roadmap
 
-- [ ] Cloud sync with user accounts
-- [ ] Team collaboration features
-- [ ] Recurring tasks
-- [ ] Advanced filtering and search
-- [ ] Custom status workflows
-- [ ] Gantt chart view
-- [ ] Notifications for overdue tasks
+- Cloud sync and account-backed storage  
+- Team collaboration and permissions  
+- Notifications for overdue tasks  
+- Recurring tasks and templates  
+- Virtualized activity feed for large logs
+
+## License
+
+MIT — see LICENSE file for details.
