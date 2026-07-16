@@ -665,8 +665,18 @@ function render() {
 
     visibleIndices.forEach(i => {
       const t = tasks[i];
+      const blocked = isBlocked(t);
+
+      // Keep status truthful to the lock: if something makes this task
+      // blocked again later (e.g. a completed dependency gets reopened),
+      // status snaps back to "Blocked" rather than showing a stale value.
+      if (blocked && t.status !== 'Blocked') {
+        t.status = 'Blocked';
+        saveTasks();
+      }
+
       const tr = document.createElement('tr');
-      tr.className = 'rail' + (isBlocked(t) ? ' is-blocked' : '');
+      tr.className = 'rail' + (blocked ? ' is-blocked' : '');
       tr.dataset.taskId = t.id;
       tr.style.setProperty('--row-color', STATUS[t.status]);
       const isOverdue = t.due && t.due < todayStr() && t.status !== 'Done';
@@ -675,26 +685,26 @@ function render() {
       const isExpanded = expandedTasks.has(i);
 
       tr.innerHTML = `
-        <td><input type="checkbox" class="row-select" data-task-id="${t.id}" ${selectedTaskIds.has(t.id) ? 'checked' : ''} aria-label="Select task" /></td>
+        <td><input type="checkbox" class="row-select" data-task-id="${t.id}" ${selectedTaskIds.has(t.id) ? 'checked' : ''} ${blocked ? 'disabled title="Locked until its dependency is done"' : ''} aria-label="Select task" /></td>
         <td>
           <div class="task-cell">
             <div class="task-cell-row">
-              <button class="star-toggle ${t.starred ? 'starred' : ''}" data-i="${i}" data-action="toggle-star" title="${t.starred ? 'Unstar' : 'Star'} this task" aria-label="Toggle star">${t.starred ? '★' : '☆'}</button>
-              <span class="drag-handle" draggable="true" data-i="${i}" title="Drag to reorder">⠿</span>
-              <input type="text" value="${t.task}" data-i="${i}" data-f="task" />
-              ${isBlocked(t) ? '<span class="blocked-badge" title="Waiting on incomplete dependencies">🔒 Blocked</span>' : ''}
+              <button class="star-toggle ${t.starred ? 'starred' : ''}" data-i="${i}" data-action="toggle-star" title="${t.starred ? 'Unstar' : 'Star'} this task" aria-label="Toggle star" ${blocked ? 'disabled' : ''}>${t.starred ? '★' : '☆'}</button>
+              <span class="drag-handle" draggable="${!blocked}" data-i="${i}" title="${blocked ? 'Locked until its dependency is done' : 'Drag to reorder'}">⠿</span>
+              <input type="text" value="${t.task}" data-i="${i}" data-f="task" ${blocked ? 'disabled title="Locked until its dependency is done"' : ''} />
+              ${blocked ? '<span class="blocked-badge" title="Waiting on incomplete dependencies">🔒 Blocked</span>' : ''}
             </div>
             <div class="task-cell-tags">
-              <button class="subtask-toggle ${isExpanded ? 'open' : ''}" data-i="${i}" data-action="toggle-subtasks">
+              <button class="subtask-toggle ${isExpanded ? 'open' : ''}" data-i="${i}" data-action="toggle-subtasks" ${blocked ? 'disabled' : ''}>
                 ${subtasks.length ? `${doneCount}/${subtasks.length} subtasks` : '+ subtasks'}
               </button>
-              <button class="recurring-toggle ${t.recurring ? 'on' : ''}" data-i="${i}" data-action="toggle-recurring" title="Repeat weekly after completion">
+              <button class="recurring-toggle ${t.recurring ? 'on' : ''}" data-i="${i}" data-action="toggle-recurring" title="Repeat weekly after completion" ${blocked ? 'disabled' : ''}>
                 🔁 ${t.recurring ? 'Repeats weekly' : 'Make recurring'}
               </button>
               <button class="deps-toggle ${expandedDeps.has(i) ? 'open' : ''}" data-i="${i}" data-action="toggle-deps">
                 🔗 ${(t.dependsOn || []).length ? `${(t.dependsOn || []).length} dependenc${(t.dependsOn || []).length === 1 ? 'y' : 'ies'}` : '+ dependency'}
               </button>
-              <button class="notes-toggle ${(t.notes || '').trim() ? 'has-notes' : ''}" data-i="${i}" data-action="toggle-notes">
+              <button class="notes-toggle ${(t.notes || '').trim() ? 'has-notes' : ''}" data-i="${i}" data-action="toggle-notes" ${blocked ? 'disabled' : ''}>
                 📝 ${(t.notes || '').trim() ? 'Notes' : '+ notes'}
               </button>
             </div>
@@ -702,38 +712,38 @@ function render() {
               ${(t.tags || []).map(tag => `
                 <span class="tag-chip" style="--tag-color:${tagColor(tag)}">
                   ${tag}
-                  <button data-i="${i}" data-tag="${tag}" data-action="remove-tag" aria-label="Remove tag ${tag}">&times;</button>
+                  <button data-i="${i}" data-tag="${tag}" data-action="remove-tag" aria-label="Remove tag ${tag}" ${blocked ? 'disabled' : ''}>&times;</button>
                 </span>
               `).join('')}
-              <button class="tag-add-btn" data-i="${i}" data-action="add-tag">+ tag</button>
+              <button class="tag-add-btn" data-i="${i}" data-action="add-tag" ${blocked ? 'disabled' : ''}>+ tag</button>
             </div>
           </div>
         </td>
-        <td><input type="text" value="${t.owner}" data-i="${i}" data-f="owner" /></td>
+        <td><input type="text" value="${t.owner}" data-i="${i}" data-f="owner" ${blocked ? 'disabled' : ''} /></td>
         <td>
-          <select class="status-pill" data-i="${i}" data-f="status" style="background:${STATUS_BG[t.status]}; color:${STATUS[t.status]};">
+          <select class="status-pill" data-i="${i}" data-f="status" style="background:${STATUS_BG[t.status]}; color:${STATUS[t.status]};" ${blocked ? 'disabled title="Locked until its dependency is done"' : ''}>
             ${Object.keys(STATUS).map(s => `<option value="${s}" style="color:${STATUS[s]}; background:${STATUS_BG[s]};" ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}
           </select>
         </td>
         <td>
-          <select class="priority priority-${t.priority}" data-i="${i}" data-f="priority">
+          <select class="priority priority-${t.priority}" data-i="${i}" data-f="priority" ${blocked ? 'disabled' : ''}>
             <option value="Low" style="color:#228B22;" ${t.priority === 'Low' ? 'selected' : ''}>Low</option>
             <option value="Medium" style="color:#B45309;" ${t.priority === 'Medium' ? 'selected' : ''}>Medium</option>
             <option value="High" style="color:#8B0000;" ${t.priority === 'High' ? 'selected' : ''}>High</option>
           </select>
         </td>
         <td>
-          <select class="category-tag" data-i="${i}" data-f="category">
+          <select class="category-tag" data-i="${i}" data-f="category" ${blocked ? 'disabled' : ''}>
             ${categories.map(c => `<option value="${c}" ${c === t.category ? 'selected' : ''}>${c}</option>`).join('')}
           </select>
         </td>
-        <td><input type="date" value="${t.start || ''}" data-i="${i}" data-f="start" /></td>
-        <td><input type="date" value="${t.due}" data-i="${i}" data-f="due" class="${isOverdue ? 'overdue-date' : ''}" /></td>
+        <td><input type="date" value="${t.start || ''}" data-i="${i}" data-f="start" ${blocked ? 'disabled' : ''} /></td>
+        <td><input type="date" value="${t.due}" data-i="${i}" data-f="due" class="${isOverdue ? 'overdue-date' : ''}" ${blocked ? 'disabled' : ''} /></td>
         <td>
           <div class="progress-cell">
             <div class="bar-track">
               <div class="bar-fill" style="width:${t.progress}%;"></div>
-              <input type="range" min="0" max="100" step="5" value="${t.progress}" data-i="${i}" data-f="progress" />
+              <input type="range" min="0" max="100" step="5" value="${t.progress}" data-i="${i}" data-f="progress" ${blocked ? 'disabled' : ''} />
             </div>
             <span class="progress-pct">${t.progress}%</span>
           </div>
@@ -742,7 +752,7 @@ function render() {
       `;
       rowsEl.appendChild(tr);
 
-      if (isExpanded) {
+      if (isExpanded && !blocked) {
         const panel = document.createElement('tr');
         panel.className = 'subtask-panel-row';
         panel.innerHTML = `
@@ -793,7 +803,7 @@ function render() {
         rowsEl.appendChild(panel);
       }
 
-      if (expandedNotes.has(i)) {
+      if (expandedNotes.has(i) && !blocked) {
         const panel = document.createElement('tr');
         panel.className = 'subtask-panel-row';
         panel.innerHTML = `
@@ -827,17 +837,11 @@ function render() {
       const i = Number(e.target.dataset.i), f = e.target.dataset.f;
       const oldValue = tasks[i][f];
 
-      // Warn before marking a blocked task Done — dependencies aren't
-      // finished yet. This is a soft warning, not a hard block.
-      if (f === 'status' && e.target.value === 'Done' && oldValue !== 'Done' && isBlocked(tasks[i])) {
-        const incomplete = getDependencyTasks(tasks[i]).filter(d => d.status !== 'Done').map(d => d.task);
-        const proceed = confirm(
-          `"${tasks[i].task}" still depends on incomplete task${incomplete.length === 1 ? '' : 's'}: ${incomplete.join(', ')}.\n\nMark as Done anyway?`
-        );
-        if (!proceed) {
-          e.target.value = oldValue;
-          return;
-        }
+      // Hard block: a blocked task's fields are rendered disabled, so this
+      // is a last line of defense in case an event slips through.
+      if (isBlocked(tasks[i])) {
+        e.target.value = oldValue;
+        return;
       }
 
       tasks[i][f] = f === 'progress' ? Number(e.target.value) : e.target.value;
@@ -984,6 +988,7 @@ function render() {
   rowsEl.querySelectorAll('[data-action="toggle-subtasks"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i);
+      if (isBlocked(tasks[i])) return;
       if (expandedTasks.has(i)) expandedTasks.delete(i); else expandedTasks.add(i);
       render();
     });
@@ -992,6 +997,7 @@ function render() {
   rowsEl.querySelectorAll('[data-action="toggle-recurring"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i);
+      if (isBlocked(tasks[i])) return;
       tasks[i].recurring = !tasks[i].recurring;
       logActivity(`Task "${tasks[i].task}" ${tasks[i].recurring ? 'set to repeat weekly' : 'no longer recurring'}`);
       saveTasks();
@@ -1002,6 +1008,7 @@ function render() {
   rowsEl.querySelectorAll('[data-action="toggle-star"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i);
+      if (isBlocked(tasks[i])) return;
       tasks[i].starred = !tasks[i].starred;
       logActivity(`Task "${tasks[i].task}" ${tasks[i].starred ? 'starred' : 'unstarred'}`);
       saveTasks();
@@ -1020,6 +1027,7 @@ function render() {
   rowsEl.querySelectorAll('[data-action="toggle-notes"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i);
+      if (isBlocked(tasks[i])) return;
       if (expandedNotes.has(i)) expandedNotes.delete(i); else expandedNotes.add(i);
       render();
     });
@@ -1070,6 +1078,7 @@ function render() {
   rowsEl.querySelectorAll('[data-action="add-tag"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i);
+      if (isBlocked(tasks[i])) return;
       const raw = window.prompt('Add tag:');
       if (!raw) return;
       const tag = raw.trim();
@@ -1086,6 +1095,7 @@ function render() {
   rowsEl.querySelectorAll('[data-action="remove-tag"]').forEach(btn => {
     btn.addEventListener('click', e => {
       const i = Number(e.currentTarget.dataset.i);
+      if (isBlocked(tasks[i])) return;
       const tag = e.currentTarget.dataset.tag;
       tasks[i].tags = (tasks[i].tags || []).filter(x => x !== tag);
       logActivity(`Tag "${tag}" removed from "${tasks[i].task}"`);
@@ -1230,7 +1240,7 @@ document.getElementById('tag-filter').addEventListener('change', e => {
 
 // --- Bulk actions ----------------------------------------------------------
 document.getElementById('select-all').addEventListener('change', e => {
-  const visibleIds = [...document.querySelectorAll('#rows .row-select')].map(cb => cb.dataset.taskId);
+  const visibleIds = [...document.querySelectorAll('#rows .row-select:not(:disabled)')].map(cb => cb.dataset.taskId);
   if (e.target.checked) {
     visibleIds.forEach(id => selectedTaskIds.add(id));
   } else {
@@ -1240,7 +1250,8 @@ document.getElementById('select-all').addEventListener('change', e => {
 });
 
 document.getElementById('bulk-done-btn').addEventListener('click', () => {
-  const affected = tasks.filter(t => selectedTaskIds.has(t.id));
+  const affected = tasks.filter(t => selectedTaskIds.has(t.id) && !isBlocked(t));
+  const skipped = tasks.filter(t => selectedTaskIds.has(t.id) && isBlocked(t));
   const clones = [];
   affected.forEach(t => {
     const wasNotDone = t.status !== 'Done';
@@ -1251,7 +1262,8 @@ document.getElementById('bulk-done-btn').addEventListener('click', () => {
     }
   });
   if (clones.length) tasks.push(...clones);
-  logActivity(`Marked ${affected.length} task${affected.length === 1 ? '' : 's'} as Done`);
+  if (affected.length) logActivity(`Marked ${affected.length} task${affected.length === 1 ? '' : 's'} as Done`);
+  if (skipped.length) logActivity(`Skipped ${skipped.length} blocked task${skipped.length === 1 ? '' : 's'} waiting on a dependency`);
   clones.forEach(clone => logActivity(`Recurring task "${clone.task}" scheduled for next cycle`));
   selectedTaskIds.clear();
   saveTasks();
@@ -1275,7 +1287,7 @@ document.getElementById('bulk-delete-btn').addEventListener('click', () => {
 document.getElementById('bulk-category-select').addEventListener('change', e => {
   const category = e.target.value;
   if (!category) return;
-  const affected = tasks.filter(t => selectedTaskIds.has(t.id));
+  const affected = tasks.filter(t => selectedTaskIds.has(t.id) && !isBlocked(t));
   affected.forEach(t => { t.category = category; });
   logActivity(`Moved ${affected.length} task${affected.length === 1 ? '' : 's'} to "${category}"`);
   selectedTaskIds.clear();
