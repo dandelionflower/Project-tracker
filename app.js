@@ -73,10 +73,10 @@ function migrateToProjectsIfNeeded() {
     // Truly fresh install (never used the tracker before) — seed a friendly
     // example project. Projects created later via "+ New project" start empty.
     const sampleTasks = [
-      { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", start: "2026-06-28", due: "2026-07-01", progress: 100 },
-      { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", start: "2026-07-02", due: "2026-07-16", progress: 60 },
-      { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", start: "2026-07-17", due: "2026-07-22", progress: 0 },
-      { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", start: "2026-07-05", due: "2026-07-10", progress: 20 }
+      { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", category: "📋 Requirements", start: "2026-06-28", due: "2026-07-01", progress: 100 },
+      { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", category: "📋 Requirements", start: "2026-07-02", due: "2026-07-16", progress: 60 },
+      { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", category: "🎨 Design", start: "2026-07-17", due: "2026-07-22", progress: 0 },
+      { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", category: "🚀 Deployment", start: "2026-07-05", due: "2026-07-10", progress: 20 }
     ];
     localStorage.setItem(`project-tracker-tasks-${defaultId}`, JSON.stringify(sampleTasks));
   }
@@ -250,7 +250,7 @@ function loadCategories() {
     const saved = localStorage.getItem(scopedKey('categories'));
     if (saved) return JSON.parse(saved);
   } catch (e) {}
-  return [];
+  return ['📋 Requirements', '🎨 Design', '💻 Development', '🧪 Testing', '🚀 Deployment', '🔧 Maintenance'];
 }
 
 function saveCategories() {
@@ -677,7 +677,7 @@ function render() {
           <span class="group-name">${group.name}</span>
           <span class="group-meta">
             ${y ? `[${x}/${y}] ${pct}%` : 'No tasks'}
-            ${group.deletable ? `<button class="del-category-btn" data-category="${group.name}" aria-label="Delete category ${group.name}">&times;</button>` : ''}
+            ${group.deletable ? `<button class="del-category-btn" data-category="${group.name}" aria-label="Remove category ${group.name}">Remove</button>` : ''}
           </span>
         </div>
       </td>
