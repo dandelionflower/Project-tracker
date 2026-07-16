@@ -15,6 +15,16 @@ function isBlocked(t) {
   return getDependencyTasks(t).some(dep => dep.status !== 'Done');
 }
 
+// When a task has subtasks, its progress bar is driven by how many of them
+// are checked off — e.g. 2 of 5 done = 40% — rather than being set by hand.
+// Tasks with no subtasks keep the plain manual 0–100 slider.
+function syncProgressToSubtasks(t) {
+  const subtasks = t.subtasks || [];
+  if (!subtasks.length) return;
+  const doneCount = subtasks.filter(s => s.done).length;
+  t.progress = Math.round((doneCount / subtasks.length) * 100);
+}
+
 // --- Multi-project support -------------------------------------------------
 // Each project gets its own tasks/categories/activity log, stored under keys
 // suffixed with the project's id. A separate "projects" list (not scoped to
@@ -743,7 +753,7 @@ function render() {
           <div class="progress-cell">
             <div class="bar-track">
               <div class="bar-fill" style="width:${t.progress}%;"></div>
-              <input type="range" min="0" max="100" step="5" value="${t.progress}" data-i="${i}" data-f="progress" ${blocked ? 'disabled' : ''} />
+              <input type="range" min="0" max="100" step="5" value="${t.progress}" data-i="${i}" data-f="progress" ${blocked || subtasks.length ? 'disabled' : ''} title="${subtasks.length ? 'Auto-calculated from subtasks' : ''}" />
             </div>
             <span class="progress-pct">${t.progress}%</span>
           </div>
@@ -868,6 +878,10 @@ function render() {
       }
 
       if (f === 'status') {
+        if (t.status === 'Done' && oldValue !== 'Done' && !(t.subtasks || []).length) {
+          t.progress = 100;
+          saveTasks();
+        }
         if (t.status === 'Done' && oldValue !== 'Done' && t.recurring) {
           const clone = createRecurringClone(t);
           tasks.push(clone);
@@ -1109,8 +1123,10 @@ function render() {
       const i = Number(e.target.dataset.i), si = Number(e.target.dataset.si);
       tasks[i].subtasks[si].done = e.target.checked;
       logActivity(`Subtask "${tasks[i].subtasks[si].text}" ${e.target.checked ? 'completed' : 'unchecked'}`);
+      syncProgressToSubtasks(tasks[i]);
       saveTasks();
       render();
+      renderGanttChart();
     });
   });
 
@@ -1120,8 +1136,10 @@ function render() {
       const subtaskText = tasks[i].subtasks[si].text;
       tasks[i].subtasks.splice(si, 1);
       logActivity(`Subtask "${subtaskText}" deleted`);
+      syncProgressToSubtasks(tasks[i]);
       saveTasks();
       render();
+      renderGanttChart();
     });
   });
 
@@ -1131,8 +1149,10 @@ function render() {
     if (!tasks[i].subtasks) tasks[i].subtasks = [];
     tasks[i].subtasks.push({ text, done: false });
     logActivity(`Subtask added to "${tasks[i].task}"`);
+    syncProgressToSubtasks(tasks[i]);
     saveTasks();
     render();
+    renderGanttChart();
   }
 
   rowsEl.querySelectorAll('[data-action="add-subtask"]').forEach(btn => {
