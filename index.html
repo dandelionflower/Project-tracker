@@ -173,7 +173,64 @@
     overflow-y: auto;
     margin-bottom: 1.5rem;
   }
-  .activity-feed .label { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); margin: 0; font-weight: 500; padding: 1.1rem 1.3rem 0; }
+  .activity-feed .label { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-faint); margin: 0; font-weight: 500; }
+  .activity-feed-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.1rem 1.3rem 0;
+  }
+  .activity-cal-toggle-btn {
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 4px 6px;
+    border-radius: 6px;
+    color: var(--ink-faint);
+  }
+  .activity-cal-toggle-btn:hover, .activity-cal-toggle-btn.open { background: var(--bg); color: var(--ink); }
+
+  .activity-cal-picker { padding: 10px 14px 4px; border-bottom: 1px solid var(--border); margin-top: 10px; }
+  .activity-cal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px;
+  }
+  .activity-cal-header button {
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink-soft);
+    border-radius: 6px; width: 26px; height: 26px; font-size: 14px; cursor: pointer;
+  }
+  .activity-cal-month-label { font-size: 14px; font-weight: 600; font-family: 'Bricolage Grotesque', sans-serif; }
+  .activity-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 3px; margin-bottom: 8px; }
+  .activity-cal-weekday { text-align: center; font-size: 11px; color: var(--ink-faint); font-weight: 600; }
+  .activity-cal-day {
+    text-align: center; font-size: 13px; padding: 5px 0; border-radius: 6px; cursor: pointer;
+    color: var(--ink-soft); position: relative;
+  }
+  .activity-cal-day:hover { background: var(--bg); }
+  .activity-cal-day.other-month { opacity: 0.3; pointer-events: none; }
+  .activity-cal-day.has-activity { font-weight: 700; color: var(--ink); }
+  .activity-cal-day.has-activity::after {
+    content: ''; position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
+    width: 4px; height: 4px; border-radius: 50%; background: var(--accent);
+  }
+  .activity-cal-day.selected { background: var(--accent); color: white; }
+  .activity-cal-day.selected::after { background: white; }
+  .activity-cal-month-link {
+    display: block; text-align: center; font-size: 12px; color: var(--accent);
+    background: none; border: none; cursor: pointer; padding: 4px 0 8px; width: 100%;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+  .activity-filter-chip {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 14px; font-size: 13px; color: var(--ink-soft);
+    background: var(--accent-soft); border-bottom: 1px solid var(--border);
+  }
+  .activity-filter-chip button {
+    border: none; background: transparent; color: var(--accent); cursor: pointer;
+    font-size: 12px; font-weight: 600; font-family: 'Plus Jakarta Sans', sans-serif;
+  }
 
   .activity-item-row {
     padding: 10px 14px;
@@ -269,13 +326,13 @@
 
   .status-pill {
     display: inline-flex; align-items: center; gap: 6px;
-    border-radius: 999px; padding: 5px 10px 5px 8px;
-    font-size: 16px; font-weight: 500; border: none; appearance: none;
+    border-radius: 999px; padding: 5px 8px 5px 6px;
+    font-size: 15px; font-weight: 500; border: none; appearance: none;
     cursor: pointer;
   }
   .status-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
 
-  select.priority { font-size: 16px; font-weight: 600; padding: 6px 8px; }
+  select.priority { font-size: 15px; font-weight: 600; padding: 6px 6px; }
   .priority-High { color: #8B0000 ; }
   .priority-Medium { color: #B45309; }
   .priority-Low { color: #228B22 ; }
@@ -650,10 +707,10 @@
     width: 100%;
     border: 1px solid transparent;
     background: transparent;
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 500;
     color: var(--ink-soft);
-    padding: 6px 8px;
+    padding: 6px 6px;
     border-radius: 8px;
     cursor: pointer;
     font-family: 'Plus Jakarta Sans', sans-serif;
@@ -1059,7 +1116,11 @@
       </div>
 
       <div class="activity-feed">
-        <p class="label">📝 Activity Feed</p>
+        <div class="activity-feed-header">
+          <p class="label">📝 Activity Feed</p>
+          <button class="activity-cal-toggle-btn" id="activity-cal-toggle-btn" aria-label="Browse activity by date" title="Browse activity by date">📅</button>
+        </div>
+        <div id="activity-cal-picker" class="activity-cal-picker" style="display:none;"></div>
         <div id="activity-feed"></div>
       </div>
     </div>
@@ -1113,14 +1174,14 @@
         <thead>
           <tr>
             <th style="width:3%"><input type="checkbox" id="select-all" aria-label="Select all visible tasks" /></th>
-            <th style="width:17%">Task</th>
-            <th style="width:9%">Owner</th>
-            <th style="width:11%">Status</th>
-            <th style="width:8%">Priority</th>
-            <th style="width:11%">Category</th>
+            <th style="width:15%">Task</th>
+            <th style="width:8%">Owner</th>
+            <th style="width:13%">Status</th>
+            <th style="width:9%">Priority</th>
+            <th style="width:13%">Category</th>
             <th style="width:8%">Start</th>
             <th style="width:8%">Due</th>
-            <th style="width:18%">Progress</th>
+            <th style="width:17%">Progress</th>
             <th style="width:4%"></th>
           </tr>
         </thead>
