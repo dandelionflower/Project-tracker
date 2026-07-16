@@ -489,6 +489,17 @@ function renderGanttChart() {
   const maxDate = new Date(Math.max(...allDates.map(d => new Date(d))));
   const dayCount = Math.round((maxDate - minDate) / (1000 * 60 * 60 * 24)) + 1;
 
+  // A mistyped date (e.g. typing a year manually and briefly landing on
+  // something like "0202" instead of "2026") can blow this range out to
+  // hundreds of thousands of days. Drawing a gridline per day at that scale
+  // would freeze the tab, so bail out with a friendly message instead of
+  // trying to render it.
+  const MAX_GANTT_DAYS = 3650; // ~10 years — generous, but bounded
+  if (!isFinite(dayCount) || dayCount <= 0 || dayCount > MAX_GANTT_DAYS) {
+    ganttEl.innerHTML = `<p style="padding: 12px; color: var(--blocked); font-size: 14px;">A task's start or due date looks off (too far in the past or future), so the Gantt chart can't be drawn. Double-check the dates on tasks with unusual years.</p>`;
+    return;
+  }
+
   const dayWidth = dayCount > 60 ? 14 : dayCount > 34 ? 20 : 32;
   const labelWidth = 170;
   const chartLeft = labelWidth;
@@ -904,7 +915,7 @@ function render() {
             <div class="task-cell-row">
               <button class="star-toggle ${t.starred ? 'starred' : ''}" data-i="${i}" data-action="toggle-star" title="${t.starred ? 'Unstar' : 'Star'} this task" aria-label="Toggle star" ${blocked ? 'disabled' : ''}>${t.starred ? '★' : '☆'}</button>
               <span class="drag-handle" draggable="${!blocked}" data-i="${i}" title="${blocked ? 'Locked until its dependency is done' : 'Drag to reorder'}">⠿</span>
-              <input type="text" value="${t.task}" data-i="${i}" data-f="task" ${blocked ? 'disabled title="Locked until its dependency is done"' : ''} />
+              <input type="text" value="${t.task}" data-i="${i}" data-f="task" ${blocked ? 'disabled title="Locked until its dependency is done"' : `title="${t.task}"`} />
               ${blocked ? '<span class="blocked-badge" title="Waiting on incomplete dependencies">🔒 Blocked</span>' : ''}
             </div>
             <div class="task-cell-tags">
@@ -1049,6 +1060,19 @@ function render() {
     el.addEventListener('input', e => {
       const i = Number(e.target.dataset.i), f = e.target.dataset.f;
       const oldValue = tasks[i][f];
+
+      // Native date inputs can momentarily report a value with a wildly
+      // wrong year while someone is typing digits into the year segment
+      // (e.g. landing on "0202" partway to typing "2026"). Reject those
+      // instead of saving them — they'd otherwise corrupt this task's
+      // dates and can make the Gantt chart unrenderable.
+      if ((f === 'start' || f === 'due') && e.target.value) {
+        const typedYear = Number(e.target.value.slice(0, 4));
+        if (!typedYear || typedYear < 1970 || typedYear > 2200) {
+          e.target.value = oldValue || '';
+          return;
+        }
+      }
 
       // Hard block: a blocked task's fields are rendered disabled, so this
       // is a last line of defense in case an event slips through.
