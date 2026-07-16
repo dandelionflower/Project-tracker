@@ -416,6 +416,7 @@ const expandedDeps = new Set();
 const expandedNotes = new Set();
 let dragSrcTaskId = null;
 const selectedTaskIds = new Set();
+const collapsedGroups = new Set();
 
 function taskMatchesFilters(t) {
   const q = searchQuery.trim().toLowerCase();
@@ -671,10 +672,14 @@ function render() {
     const y = group.indices.length;
     const x = group.indices.filter(i => tasks[i].status === 'Done').length;
     const pct = y ? Math.round((x / y) * 100) : 0;
+    const collapsed = collapsedGroups.has(group.name);
     header.innerHTML = `
       <td colspan="10">
         <div class="group-header-inner">
-          <span class="group-name">${group.name}</span>
+          <span class="group-name-wrap">
+            <button class="group-collapse-btn ${collapsed ? 'collapsed' : ''}" data-group="${group.name}" aria-label="${collapsed ? 'Expand' : 'Collapse'} ${group.name}" aria-expanded="${!collapsed}">▾</button>
+            <span class="group-name">${group.name}</span>
+          </span>
           <span class="group-meta">
             ${y ? `[${x}/${y}] ${pct}%` : 'No tasks'}
             ${group.deletable ? `<button class="del-category-btn" data-category="${group.name}" aria-label="Remove category ${group.name}">Remove</button>` : ''}
@@ -683,6 +688,8 @@ function render() {
       </td>
     `;
     rowsEl.appendChild(header);
+
+    if (collapsed) return;
 
     const visibleIndices = sortIndices(group.indices.filter(i => taskMatchesFilters(tasks[i])));
 
@@ -993,6 +1000,14 @@ function render() {
       render();
       saveTasks();
       renderGanttChart();
+    });
+  });
+
+  rowsEl.querySelectorAll('.group-collapse-btn').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const name = e.currentTarget.dataset.group;
+      if (collapsedGroups.has(name)) collapsedGroups.delete(name); else collapsedGroups.add(name);
+      render();
     });
   });
 
@@ -1628,7 +1643,16 @@ checkDueSoon();
 
 // --- Print report --------------------------------------------------------
 document.getElementById('print-btn').addEventListener('click', () => {
+  // Printing should always show every task, regardless of which category
+  // groups are currently collapsed on screen — otherwise collapsed groups
+  // would silently vanish from the printed report.
+  const savedCollapsed = new Set(collapsedGroups);
+  collapsedGroups.clear();
+  render();
   window.print();
+  collapsedGroups.clear();
+  savedCollapsed.forEach(c => collapsedGroups.add(c));
+  render();
 });
 
 // --- JSON backup / restore ------------------------------------------------
