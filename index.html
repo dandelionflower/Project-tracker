@@ -201,6 +201,8 @@
   }
   tbody tr.rail.is-blocked:hover { opacity: 0.9; filter: grayscale(0.25); }
   tbody tr.rail.is-blocked .task-cell input[type="text"] { color: var(--ink-faint); }
+  tbody tr.rail.is-blocked :disabled { cursor: not-allowed; }
+  tbody tr.rail.is-blocked .drag-handle[draggable="false"] { cursor: not-allowed; opacity: 0.5; }
   tbody td { padding: 8px 14px; vertical-align: middle; }
 
   input[type="text"], input[type="date"], select {
