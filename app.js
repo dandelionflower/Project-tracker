@@ -73,10 +73,10 @@ function migrateToProjectsIfNeeded() {
     // Truly fresh install (never used the tracker before) — seed a friendly
     // example project. Projects created later via "+ New project" start empty.
     const sampleTasks = [
-      { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", start: "2026-06-28", due: "2026-07-01", progress: 100 },
-      { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", start: "2026-07-02", due: "2026-07-16", progress: 60 },
-      { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", start: "2026-07-17", due: "2026-07-22", progress: 0 },
-      { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", start: "2026-07-05", due: "2026-07-10", progress: 20 }
+      { task: "Kickoff meeting", owner: "Mia", status: "Done", priority: "Medium", category: "📋 Requirements", start: "2026-06-28", due: "2026-07-01", progress: 100 },
+      { task: "Draft requirements doc", owner: "Sam", status: "In progress", priority: "High", category: "📋 Requirements", start: "2026-07-02", due: "2026-07-16", progress: 60 },
+      { task: "Design review", owner: "Priya", status: "Not started", priority: "Medium", category: "🎨 Design", start: "2026-07-17", due: "2026-07-22", progress: 0 },
+      { task: "Vendor contract sign-off", owner: "Leo", status: "Blocked", priority: "High", category: "🚀 Deployment", start: "2026-07-05", due: "2026-07-10", progress: 20 }
     ];
     localStorage.setItem(`project-tracker-tasks-${defaultId}`, JSON.stringify(sampleTasks));
   }
@@ -211,53 +211,53 @@ function openArchivedProjects() {
     alert('Not a valid number.');
     return;
   }
+
   const project = archived[idx];
-
-  const action = window.prompt(`"${project.name}" — type "restore" to bring it back, or "delete" to permanently erase it and its data (cannot be undone):`);
-  if (!action) return;
-  const normalized = action.trim().toLowerCase();
-
-  if (normalized === 'restore' || normalized === 'r') {
+  const action = window.prompt(`"${project.name}":\n\n1 = Restore\n2 = Permanently delete`);
+  if (action === '1') {
     project.archived = false;
     saveProjects();
-    updateArchivedBtn();
+    logActivity(`Project "${project.name}" restored`);
     switchToProject(project.id);
-  } else if (normalized === 'delete' || normalized === 'd') {
-    if (!confirm(`Permanently delete "${project.name}" and all of its tasks? This can't be undone.`)) return;
+    updateArchivedBtn();
+  } else if (action === '2') {
+    if (!confirm(`Permanently erase all data for "${project.name}"? This can't be undone.`)) return;
+    projects = projects.filter(p => p.id !== project.id);
     localStorage.removeItem(`project-tracker-tasks-${project.id}`);
     localStorage.removeItem(`project-tracker-categories-${project.id}`);
     localStorage.removeItem(`project-tracker-activities-${project.id}`);
-    projects = projects.filter(p => p.id !== project.id);
     saveProjects();
+    logActivity(`Project "${project.name}" deleted`);
+    switchToProject(activeProjects()[0].id);
     updateArchivedBtn();
   }
 }
 
 function updateArchivedBtn() {
-  const btn = document.getElementById('archived-projects-btn');
   const badge = document.getElementById('archived-badge');
-  if (!btn || !badge) return;
   const count = archivedProjects().length;
-  badge.textContent = count;
-  badge.style.display = count ? 'inline-flex' : 'none';
+  if (count) {
+    badge.textContent = count;
+    badge.style.display = 'inline-block';
+  } else {
+    badge.style.display = 'none';
+  }
 }
 
-let categories = loadCategories();
-let activities = loadActivities();
+document.getElementById('project-name-input').addEventListener('blur', e => {
+  renameActiveProject(e.target.value);
+});
 
-function loadCategories() {
-  try {
-    const saved = localStorage.getItem(scopedKey('categories'));
-    if (saved) return JSON.parse(saved);
-  } catch (e) {}
-  return [];
-}
+document.getElementById('project-switcher').addEventListener('change', e => {
+  switchToProject(e.target.value);
+});
 
-function saveCategories() {
-  try {
-    localStorage.setItem(scopedKey('categories'), JSON.stringify(categories));
-  } catch (e) {}
-}
+document.getElementById('new-project-btn').addEventListener('click', createNewProject);
+document.getElementById('delete-project-btn').addEventListener('click', deleteActiveProject);
+document.getElementById('archived-projects-btn').addEventListener('click', openArchivedProjects);
+
+// --- Activity logging -------------------------------------------------------
+let activities = [];
 
 function loadActivities() {
   try {
@@ -273,77 +273,201 @@ function saveActivities() {
   } catch (e) {}
 }
 
-function logActivity(message) {
-  const now = new Date();
-  const timestamp = now.toISOString();
-  const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  activities.unshift({ timestamp, time, message });
-  if (activities.length > 100) activities.pop();
+function logActivity(msg) {
+  activities.push({ time: new Date().toISOString(), msg });
+  if (activities.length > 50) activities = activities.slice(-50);
   saveActivities();
   renderActivityFeed();
 }
 
-const STATUS = {
-  "Not started": "var(--not-started)",
-  "In progress": "var(--in-progress)",
-  "Blocked":     "var(--blocked)",
-  "Done":        "var(--done)"
-};
-const STATUS_BG = {
-  "Not started": "var(--not-started-bg)",
-  "In progress": "var(--in-progress-bg)",
-  "Blocked":     "var(--blocked-bg)",
-  "Done":        "var(--done-bg)"
-};
+function renderActivityFeed() {
+  const container = document.getElementById('activity-feed');
+  if (!container) return;
+  const feed = container.querySelector('div') || container;
+  feed.innerHTML = activities.slice().reverse().map((a, idx) => {
+    const date = new Date(a.time);
+    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return `<div class="activity-item"><span class="activity-time">${time}</span> ${a.msg}</div>`;
+  }).join('');
+}
+
+// --- Gantt chart rendering --------------------------------------------------
+function renderGanttChart() {
+  const container = document.getElementById('gantt-chart');
+  if (!container) return;
+
+  const activeTasks = tasks.filter(t => !t.archived);
+  if (!activeTasks.length) {
+    container.innerHTML = '<p style="text-align:center;color:var(--ink-faint);padding:20px;">No tasks to display</p>';
+    return;
+  }
+
+  // Find the date range across all tasks
+  const starts = activeTasks.map(t => t.start).filter(d => d);
+  const dues = activeTasks.map(t => t.due).filter(d => d);
+  const allDates = [...starts, ...dues];
+  if (!allDates.length) {
+    container.innerHTML = '<p style="text-align:center;color:var(--ink-faint);padding:20px;">Add start/due dates to see the Gantt chart</p>';
+    return;
+  }
+
+  const minDate = new Date(Math.min(...allDates.map(d => new Date(d).getTime())));
+  const maxDate = new Date(Math.max(...allDates.map(d => new Date(d).getTime())));
+  minDate.setDate(minDate.getDate() - 1);
+  maxDate.setDate(maxDate.getDate() + 1);
+
+  const chartWidth = 800;
+  const barHeight = 24;
+  const rowHeight = 32;
+  const labelWidth = 200;
+  const totalWidth = labelWidth + chartWidth + 40;
+  const totalHeight = activeTasks.length * rowHeight + 60;
+
+  let svg = `<svg viewBox="0 0 ${totalWidth} ${totalHeight}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;">`;
+
+  // Background
+  svg += `<rect width="${totalWidth}" height="${totalHeight}" fill="transparent" />`;
+
+  // Timeline
+  const dayCount = Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24));
+  const pixelsPerDay = chartWidth / dayCount;
+  const headerY = 20;
+
+  svg += `<g fill="var(--ink-faint)" font-size="12">`;
+  for (let i = 0; i <= dayCount; i += Math.ceil(dayCount / 10)) {
+    const date = new Date(minDate);
+    date.setDate(date.getDate() + i);
+    const x = labelWidth + i * pixelsPerDay;
+    const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    svg += `<text x="${x}" y="${headerY}" text-anchor="middle">${dateStr}</text>`;
+    svg += `<line x1="${x}" y1="${headerY + 5}" x2="${x}" y2="${totalHeight}" stroke="var(--border)" stroke-width="0.5" opacity="0.3" />`;
+  }
+  svg += `</g>`;
+
+  // Bars for each task
+  activeTasks.forEach((t, idx) => {
+    const y = 50 + idx * rowHeight;
+    const isBlocked = getDependencyTasks(t).some(dep => dep.status !== 'Done');
+    const fillColor = isBlocked ? 'var(--blocked)' : STATUS[t.status] || '#999';
+    const opacity = isBlocked ? '0.4' : '0.8';
+
+    // Task label
+    const taskLabel = t.task.length > 25 ? t.task.substring(0, 22) + '...' : t.task;
+    svg += `<text x="8" y="${y + 18}" font-size="13" fill="var(--ink)" text-anchor="start">${taskLabel}</text>`;
+
+    // Determine bar span
+    if (t.start && t.due) {
+      const startDate = new Date(t.start);
+      const dueDate = new Date(t.due);
+      const startOffset = (startDate - minDate) / (1000 * 60 * 60 * 24);
+      const duration = (dueDate - startDate) / (1000 * 60 * 60 * 24);
+      const barX = labelWidth + startOffset * pixelsPerDay;
+      const barWidth = Math.max(duration * pixelsPerDay, 4);
+
+      svg += `<rect x="${barX}" y="${y + 5}" width="${barWidth}" height="${barHeight}" fill="${fillColor}" opacity="${opacity}" rx="3" />`;
+
+      // Draw dependency arrows if this task depends on others
+      const deps = getDependencyTasks(t);
+      if (deps.length) {
+        deps.forEach(dep => {
+          const depIdx = activeTasks.indexOf(dep);
+          if (depIdx !== -1) {
+            const depY = 50 + depIdx * rowHeight + barHeight / 2;
+            const depEndX = labelWidth + ((new Date(dep.due || dep.start) - minDate) / (1000 * 60 * 60 * 24)) * pixelsPerDay;
+            const fromY = depY;
+            const toY = y + 5 + barHeight / 2;
+            const midX = (depEndX + barX) / 2;
+
+            // Elbow arrow: horizontal → vertical → horizontal
+            svg += `<path d="M ${depEndX} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${barX} ${toY}" stroke="var(--ink-faint)" stroke-width="1" fill="none" opacity="0.4" />`;
+            svg += `<polygon points="${barX},${toY} ${barX - 4},${toY - 3} ${barX - 4},${toY + 3}" fill="var(--ink-faint)" opacity="0.4" />`;
+          }
+        });
+      }
+    }
+  });
+
+  svg += '</svg>';
+  container.innerHTML = svg;
+}
+
+// --- Calendar rendering -----------------------------------------------------
+function renderCalendar() {
+  const container = document.getElementById('calendar-grid');
+  if (!container) return;
+
+  const [year, month, day] = (calendarMonth || todayStr()).split('-').map(Number);
+  const firstDay = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0);
+  const startDate = new Date(firstDay);
+  startDate.setDate(startDate.getDate() - firstDay.getDay());
+
+  // Month label
+  document.getElementById('cal-month-label').textContent = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const days = [];
+  let current = new Date(startDate);
+  for (let i = 0; i < 42; i++) {
+    days.push(new Date(current));
+    current.setDate(current.getDate() + 1);
+  }
+
+  const today = todayStr();
+  const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  let html = '';
+
+  weekdayLabels.forEach(label => {
+    html += `<div class="cal-weekday">${label}</div>`;
+  });
+
+  days.forEach(d => {
+    const dateStr = d.toISOString().slice(0, 10);
+    const isToday = dateStr === today;
+    const isOtherMonth = d.getMonth() !== firstDay.getMonth();
+    const dayNum = d.getDate();
+    const dayTasks = tasks.filter(t => t.due === dateStr && t.status !== 'Done');
+    const overdueCount = dayTasks.filter(t => t.due < today && t.status !== 'Done').length;
+    const classStr = `cal-day ${isOtherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''}`;
+
+    html += `<div class="${classStr}"><div class="cal-day-num">${dayNum}</div>`;
+    dayTasks.slice(0, 3).forEach(t => {
+      const chipClass = `cal-task-chip ${overdueCount ? 'overdue-chip' : 'projected-chip'}`;
+      const title = t.task.length > 20 ? t.task.substring(0, 17) + '…' : t.task;
+      html += `<div class="${chipClass}" style="background:${STATUS[t.status] || '#999'}" title="${t.task}">${title}</div>`;
+    });
+    if (dayTasks.length > 3) {
+      html += `<div class="cal-more">+${dayTasks.length - 3} more</div>`;
+    }
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
+}
+
+let calendarMonth = todayStr();
+document.getElementById('cal-prev')?.addEventListener('click', () => {
+  const [y, m, d] = calendarMonth.split('-').map(Number);
+  const date = new Date(y, m - 2, 1);
+  calendarMonth = date.toISOString().slice(0, 7) + '-01';
+  renderCalendar();
+});
+document.getElementById('cal-next')?.addEventListener('click', () => {
+  const [y, m, d] = calendarMonth.split('-').map(Number);
+  const date = new Date(y, m, 1);
+  calendarMonth = date.toISOString().slice(0, 7) + '-01';
+  renderCalendar();
+});
+
+// --- Task management -------------------------------------------------------
+const STATUS = { 'Not started': '#9CA3AF', 'In progress': '#2563EB', 'Blocked': '#DC2626', 'Done': '#059669' };
+const STATUS_BG = { 'Not started': '#F1F2F4', 'In progress': '#E9EFFE', 'Blocked': '#FDECEC', 'Done': '#E6F5EE' };
+
+let tasks = [];
+let categories = [];
 
 function makeId() {
-  return 't_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+  return 'task_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5);
 }
-
-function addDays(dateStr, days) {
-  const d = new Date(dateStr);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-// Recurring tasks always repeat on a fixed weekly cadence — regardless of
-// how long the original task's own start-to-due span happened to be. A task
-// created with start === due (the default for any newly added task) should
-// still recur weekly, not daily.
-const RECURRENCE_CYCLE_DAYS = 7;
-
-// Recurring clones get a short date suffix so consecutive instances of the
-// same task don't show up as identical, ambiguous duplicates in the table
-// or Gantt chart (e.g. "Eating (Jul 20)", then "Eating (Jul 27)"). Any prior
-// cycle's suffix is stripped first so they don't stack up on repeat.
-function baseTaskName(name) {
-  return name.replace(/ \([A-Za-z]{3} \d{1,2}\)$/, '');
-}
-
-function formatShortDate(dateStr) {
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
-function createRecurringClone(t) {
-  const newStart = t.due || todayStr();
-  const newDue = addDays(newStart, RECURRENCE_CYCLE_DAYS);
-  return {
-    ...t,
-    id: makeId(),
-    task: `${baseTaskName(t.task)} (${formatShortDate(newStart)})`,
-    status: 'Not started',
-    progress: 0,
-    start: newStart,
-    due: newDue,
-    subtasks: (t.subtasks || []).map(s => ({ text: s.text, done: false })),
-    tags: [...(t.tags || [])]
-  };
-}
-
-let tasks = loadTasks();
-// Backfill IDs for any tasks saved before IDs existed.
-tasks.forEach(t => { if (!t.id) t.id = makeId(); });
 
 function loadTasks() {
   try {
@@ -372,6 +496,12 @@ function saveTasks() {
 
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 function updateBulkActionBar() {
   const bar = document.getElementById('bulk-action-bar');
   const count = selectedTaskIds.size;
@@ -386,10 +516,11 @@ function updateBulkActionBar() {
 
 function updateSelectAllCheckbox() {
   const selectAll = document.getElementById('select-all');
-  const visibleCheckboxes = document.querySelectorAll('#rows .row-select');
-  if (!visibleCheckboxes.length) { selectAll.checked = false; selectAll.indeterminate = false; return; }
+  const visibleCheckboxes = document.querySelectorAll('#rows .row-select:not(:disabled)');
+  const allCheckboxes = document.querySelectorAll('#rows .row-select');
+  if (!allCheckboxes.length) { selectAll.checked = false; selectAll.indeterminate = false; return; }
   const checkedCount = [...visibleCheckboxes].filter(cb => cb.checked).length;
-  selectAll.checked = checkedCount === visibleCheckboxes.length;
+  selectAll.checked = checkedCount === visibleCheckboxes.length && visibleCheckboxes.length > 0;
   selectAll.indeterminate = checkedCount > 0 && checkedCount < visibleCheckboxes.length;
 }
 
@@ -448,206 +579,109 @@ function sortIndices(indices) {
 }
 
 function ganttLightFill(colorVar) {
-  return `color-mix(in srgb, ${colorVar} 28%, var(--surface))`;
+  const hex = getComputedStyle(document.documentElement).getPropertyValue(colorVar).trim();
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(hex.slice(i, i + 2), 16));
+  return `rgba(${r}, ${g}, ${b}, 0.1)`;
 }
 
-function renderGanttChart() {
-  const ganttEl = document.getElementById('gantt-chart');
-  if (!ganttEl) return;
-  ganttEl.innerHTML = '';
-
-  const tasksWithDates = tasks.filter(t => t.start && t.due);
-  if (!tasksWithDates.length) {
-    ganttEl.innerHTML = '<p style="padding: 12px; color: var(--ink-faint); font-size: 12px;">No tasks with dates to display.</p>';
-    return;
-  }
-
-  // Chronological order reads best for a dependency chain.
-  const rows = [...tasksWithDates].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : (a.due < b.due ? -1 : 1)));
-
-  const allDates = tasksWithDates.flatMap(t => [t.start, t.due]);
-  const minDate = new Date(Math.min(...allDates.map(d => new Date(d))));
-  const maxDate = new Date(Math.max(...allDates.map(d => new Date(d))));
-  const dayCount = Math.round((maxDate - minDate) / (1000 * 60 * 60 * 24)) + 1;
-
-  const dayWidth = dayCount > 60 ? 14 : dayCount > 34 ? 20 : 32;
-  const labelWidth = 170;
-  const chartLeft = labelWidth;
-  const chartWidth = dayCount * dayWidth;
-  const totalWidth = chartLeft + chartWidth + 4;
-
-  const headerH1 = 22, headerH2 = 22;
-  const headerHeight = headerH1 + headerH2;
-  const rowHeight = 34;
-  const barHeight = 20;
-  const totalRows = rows.length + 1; // +1 for the overall summary row
-  const totalHeight = headerHeight + totalRows * rowHeight + 4;
-
-  const dayX = i => chartLeft + i * dayWidth;
-  const dateIndex = dateStr => Math.round((new Date(dateStr) - minDate) / (1000 * 60 * 60 * 24));
-
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('width', totalWidth);
-  svg.setAttribute('height', totalHeight);
-  svg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
-  svg.setAttribute('style', 'font-family: "Plus Jakarta Sans", sans-serif; display:block;');
-
-  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-  defs.innerHTML = `<marker id="gantt-arrowhead" markerWidth="7" markerHeight="7" refX="5.5" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="var(--ink-faint)"></path></marker>`;
-  svg.appendChild(defs);
-
-  const svgns = 'http://www.w3.org/2000/svg';
-  const el = (tag, attrs) => {
-    const n = document.createElementNS(svgns, tag);
-    Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, v));
-    return n;
-  };
-
-  // --- Header: week-range labels + day-of-month numbers ---------------
-  svg.appendChild(el('rect', { x: 0, y: 0, width: totalWidth, height: headerHeight, fill: 'var(--bg)' }));
-
-  for (let i = 0; i < dayCount; i++) {
-    const d = new Date(minDate);
-    d.setDate(d.getDate() + i);
-    const x = dayX(i);
-
-    if (i % 7 === 0) {
-      const weekLabel = el('text', { x: x + 4, y: 15, 'font-size': 11, 'font-weight': 700, fill: 'var(--ink)' });
-      weekLabel.textContent = d.toISOString().slice(0, 10);
-      svg.appendChild(weekLabel);
-      svg.appendChild(el('line', { x1: x, y1: 0, x2: x, y2: totalHeight, stroke: 'var(--border)', 'stroke-width': 1 }));
-    }
-
-    const dayLabel = el('text', { x: x + dayWidth / 2, y: headerH1 + 15, 'font-size': 11, 'font-weight': 600, 'text-anchor': 'middle', fill: 'var(--ink-soft)' });
-    dayLabel.textContent = d.getDate();
-    svg.appendChild(dayLabel);
-
-    svg.appendChild(el('line', { x1: x, y1: headerH1, x2: x, y2: totalHeight, stroke: 'var(--border)', 'stroke-width': 0.5, opacity: 0.6 }));
-  }
-  svg.appendChild(el('line', { x1: chartLeft, y1: headerHeight, x2: totalWidth, y2: headerHeight, stroke: 'var(--border)', 'stroke-width': 1 }));
-
-  // --- A two-tone rounded bar (or a diamond for zero-duration milestones) ---
-  function drawBar(rowIdx, startStr, dueStr, progress, colorVar, label, isSummary) {
-    const y = headerHeight + rowIdx * rowHeight;
-    const barY = y + (rowHeight - barHeight) / 2;
-    const startI = dateIndex(startStr);
-    const dueI = dateIndex(dueStr);
-    const barX = dayX(startI);
-    const barW = Math.max((dueI - startI + 1) * dayWidth, dayWidth * 0.9);
-
-    if (label !== null) {
-      const labelEl = el('text', { x: 8, y: y + rowHeight / 2 + 4, 'font-size': 12, 'font-weight': isSummary ? 700 : 500, fill: isSummary ? 'var(--ink)' : 'var(--ink-soft)' });
-      labelEl.textContent = label.length > 22 ? label.slice(0, 21) + '…' : label;
-      svg.appendChild(labelEl);
-    }
-
-    // Milestone: zero-duration task renders as a small diamond, not a bar.
-    if (!isSummary && startStr === dueStr) {
-      const cx = barX + dayWidth / 2, cy = y + rowHeight / 2, r = 7;
-      const diamond = el('polygon', {
-        points: `${cx},${cy - r} ${cx + r},${cy} ${cx},${cy + r} ${cx - r},${cy}`,
-        fill: colorVar, stroke: 'var(--surface)', 'stroke-width': 1
-      });
-      svg.appendChild(diamond);
-      return { x: barX, endX: barX + dayWidth, y: cy, isMilestone: true };
-    }
-
-    const clipId = `gantt-clip-${isSummary ? 'summary' : rowIdx}`;
-    defs.innerHTML += `<clipPath id="${clipId}"><rect x="${barX}" y="${barY}" width="${barW}" height="${barHeight}" rx="6"></rect></clipPath>`;
-
-    svg.appendChild(el('rect', { x: barX, y: barY, width: barW, height: barHeight, rx: 6, fill: ganttLightFill(colorVar) }));
-    const filled = Math.max(0, Math.min(100, progress));
-    if (filled > 0) {
-      svg.appendChild(el('rect', { x: barX, y: barY, width: (barW * filled) / 100, height: barHeight, fill: colorVar, 'clip-path': `url(#${clipId})` }));
-    }
-
-    return { x: barX, endX: barX + barW, y: barY + barHeight / 2, isMilestone: false };
-  }
-
-  // --- Overall summary bar (row 0) --------------------------------------
-  const overallProgress = tasks.length ? Math.round(tasks.reduce((s, t) => s + Number(t.progress), 0) / tasks.length) : 0;
-  drawBar(0, minDate.toISOString().slice(0, 10), maxDate.toISOString().slice(0, 10), overallProgress, 'var(--ink-soft)', 'Overall', true);
-  svg.appendChild(el('line', { x1: chartLeft, y1: headerHeight + rowHeight, x2: totalWidth, y2: headerHeight + rowHeight, stroke: 'var(--border)', 'stroke-width': 1 }));
-
-  // --- Task bars ----------------------------------------------------------
-  const barGeom = {};
-  rows.forEach((t, idx) => {
-    const rowIdx = idx + 1; // offset by the summary row
-    barGeom[t.id] = drawBar(rowIdx, t.start, t.due, t.progress, STATUS[t.status], t.task, false);
-  });
-
-  // --- Dependency connectors: elbow line + arrowhead from dep → task -----
-  rows.forEach((t, idx) => {
-    const rowIdx = idx + 1;
-    (t.dependsOn || []).forEach(depId => {
-      const dep = barGeom[depId];
-      const target = barGeom[t.id];
-      if (!dep || !target) return;
-      const midX = dep.endX + 10;
-      const path = `M ${dep.endX} ${dep.y} H ${midX} V ${target.y} H ${target.x - 3}`;
-      svg.appendChild(el('path', { d: path, fill: 'none', stroke: 'var(--ink-faint)', 'stroke-width': 1.5, 'marker-end': 'url(#gantt-arrowhead)' }));
-    });
-  });
-
-  ganttEl.appendChild(svg);
+function loadCategories() {
+  try {
+    const saved = localStorage.getItem(scopedKey('categories'));
+    if (saved) return JSON.parse(saved);
+  } catch (e) {}
+  return ['📋 Requirements', '🎨 Design', '💻 Development', '🧪 Testing', '🚀 Deployment', '🔧 Maintenance'];
 }
 
-
-function renderActivityFeed() {
-  const feedEl = document.getElementById('activity-feed');
-  if (!feedEl) return;
-  feedEl.innerHTML = '';
-
-  if (!activities.length) {
-    feedEl.innerHTML = '<p style="padding: 12px; color: var(--ink-faint); font-size: 12px;">No activity yet.</p>';
-    return;
-  }
-
-  activities.slice(0, 30).forEach(act => {
-    const item = document.createElement('div');
-    item.style.cssText = 'padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px;';
-    
-    const msg = document.createElement('span');
-    msg.style.cssText = 'font-size: 12px; color: var(--ink-soft); flex: 1;';
-    msg.textContent = act.message;
-    
-    const time = document.createElement('span');
-    time.style.cssText = 'font-family: JetBrains Mono, monospace; font-size: 11px; color: var(--ink-faint); white-space: nowrap;';
-    time.textContent = act.time;
-    
-    item.appendChild(msg);
-    item.appendChild(time);
-    feedEl.appendChild(item);
-  });
+function saveCategories() {
+  try {
+    localStorage.setItem(scopedKey('categories'), JSON.stringify(categories));
+  } catch (e) {}
 }
 
-// Native HTML5 drag/drop gives no reorder animation on its own, so this
-// implements FLIP (First, Last, Invert, Play): snapshot every row's position
-// before the reorder, let the DOM update instantly, then for any row that
-// ended up somewhere new, jump it back to its old spot with a transform and
-// animate that transform away — it reads as a smooth slide into place.
+function createRecurringClone(original) {
+  // Clone the task and add the date tag to its name
+  const clone = JSON.parse(JSON.stringify(original));
+  clone.id = makeId();
+  
+  // Strip any old date tag before adding a new one
+  // Old format: "Task name (Mon DD)" or similar
+  clone.task = clone.task.replace(/\s*\([A-Za-z]{3}\s+\d{1,2}\)\s*$/, '');
+  
+  // Add new date tag
+  const nextCycle = addDays(clone.due, 7);
+  const date = new Date(nextCycle + 'T00:00:00Z');
+  const dateTag = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  clone.task += ` (${dateTag})`;
+  
+  clone.status = 'Not started';
+  clone.progress = 0;
+  clone.start = addDays(clone.start, 7);
+  clone.due = nextCycle;
+  clone.subtasks = (clone.subtasks || []).map(s => ({ ...s, done: false }));
+  if (clone.dependsOn) delete clone.dependsOn;
+  return clone;
+}
+
+tasks = loadTasks();
+categories = loadCategories();
+activities = loadActivities();
+
+if (!tasks.length) {
+  tasks = [
+    { id: makeId(), task: 'Setup & welcome', owner: 'You', status: 'Done', priority: 'High', category: '📋 Requirements', start: todayStr(), due: todayStr(), progress: 100, subtasks: [{ text: 'Try creating a task', done: true }, { text: 'Explore the Gantt chart', done: false }] }
+  ];
+  saveTasks();
+}
+
+refreshProjectHeader();
+renderActivityFeed();
+
+// --- Search and filtering ---------------------------------------------------
+document.getElementById('search-input').addEventListener('input', e => {
+  searchQuery = e.target.value;
+  render();
+});
+document.getElementById('sort-select').addEventListener('change', e => {
+  sortMode = e.target.value;
+  render();
+});
+document.getElementById('tag-filter').addEventListener('change', e => {
+  tagFilter = e.target.value;
+  render();
+});
+document.getElementById('overdue-only').addEventListener('change', e => {
+  overdueOnly = e.target.checked;
+  render();
+});
+document.getElementById('starred-only').addEventListener('change', e => {
+  starredOnly = e.target.checked;
+  render();
+});
+
+// --- Rendering functions ---------------------------------------------------
 function captureRowRects() {
-  const map = new Map();
-  document.querySelectorAll('#rows tr[data-task-id]').forEach(tr => {
-    map.set(tr.dataset.taskId, tr.getBoundingClientRect());
+  const rows = document.querySelectorAll('#rows tr.rail');
+  const rects = new Map();
+  rows.forEach(row => {
+    const id = row.dataset.taskId;
+    if (id) rects.set(id, row.getBoundingClientRect());
   });
-  return map;
+  return rects;
 }
 
 function playFlipAnimation(oldRects) {
-  document.querySelectorAll('#rows tr[data-task-id]').forEach(tr => {
-    const oldRect = oldRects.get(tr.dataset.taskId);
-    if (!oldRect) return;
-    const newRect = tr.getBoundingClientRect();
+  const rows = document.querySelectorAll('#rows tr.rail');
+  rows.forEach(row => {
+    const id = row.dataset.taskId;
+    if (!id || !oldRects.has(id)) return;
+    const oldRect = oldRects.get(id);
+    const newRect = row.getBoundingClientRect();
     const deltaY = oldRect.top - newRect.top;
     if (Math.abs(deltaY) < 1) return;
-
-    tr.style.transition = 'none';
-    tr.style.transform = `translateY(${deltaY}px)`;
-    requestAnimationFrame(() => {
-      tr.style.transition = 'transform 0.28s cubic-bezier(0.2, 0, 0.2, 1)';
-      tr.style.transform = '';
-    });
+    row.animate([
+      { transform: `translateY(${deltaY}px)`, opacity: 1 },
+      { transform: 'translateY(0)', opacity: 1 }
+    ], { duration: 300, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' });
   });
 }
 
@@ -998,37 +1032,12 @@ function render() {
 
   rowsEl.querySelectorAll('.del-category-btn').forEach(btn => {
     btn.addEventListener('click', e => {
-      const name = e.currentTarget.dataset.category;
-      const affected = tasks.filter(t => t.category === name).length;
-      const msg = affected
-        ? `Delete "${name}"? ${affected} task${affected === 1 ? '' : 's'} will move to Uncategorized.`
-        : `Delete "${name}"?`;
-      if (!confirm(msg)) return;
-
-      tasks.forEach(t => { if (t.category === name) t.category = undefined; });
-      categories = categories.filter(c => c !== name);
-      logActivity(`Category "${name}" deleted`);
+      const cat = e.currentTarget.dataset.category;
+      if (!confirm(`Delete category "${cat}" and move all tasks to Uncategorized?`)) return;
+      tasks.forEach(t => { if (t.category === cat) t.category = ''; });
+      categories = categories.filter(c => c !== cat);
+      logActivity(`Category "${cat}" deleted`);
       saveCategories();
-      saveTasks();
-      render();
-    });
-  });
-
-  rowsEl.querySelectorAll('[data-action="toggle-subtasks"]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      const i = Number(e.currentTarget.dataset.i);
-      if (isBlocked(tasks[i])) return;
-      if (expandedTasks.has(i)) expandedTasks.delete(i); else expandedTasks.add(i);
-      render();
-    });
-  });
-
-  rowsEl.querySelectorAll('[data-action="toggle-recurring"]').forEach(btn => {
-    btn.addEventListener('click', e => {
-      const i = Number(e.currentTarget.dataset.i);
-      if (isBlocked(tasks[i])) return;
-      tasks[i].recurring = !tasks[i].recurring;
-      logActivity(`Task "${tasks[i].task}" ${tasks[i].recurring ? 'set to repeat weekly' : 'no longer recurring'}`);
       saveTasks();
       render();
     });
@@ -1041,6 +1050,26 @@ function render() {
       tasks[i].starred = !tasks[i].starred;
       logActivity(`Task "${tasks[i].task}" ${tasks[i].starred ? 'starred' : 'unstarred'}`);
       saveTasks();
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="toggle-recurring"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      if (isBlocked(tasks[i])) return;
+      tasks[i].recurring = !tasks[i].recurring;
+      logActivity(`Task "${tasks[i].task}" recurring set to ${tasks[i].recurring}`);
+      saveTasks();
+      render();
+    });
+  });
+
+  rowsEl.querySelectorAll('[data-action="toggle-subtasks"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = Number(e.currentTarget.dataset.i);
+      if (isBlocked(tasks[i])) return;
+      if (expandedTasks.has(i)) expandedTasks.delete(i); else expandedTasks.add(i);
       render();
     });
   });
@@ -1185,6 +1214,14 @@ function render() {
       }
     });
   });
+
+  rowsEl.querySelectorAll('.notes-textarea').forEach(ta => {
+    ta.addEventListener('input', e => {
+      const i = Number(e.target.dataset.i);
+      tasks[i].notes = e.target.value;
+      saveTasks();
+    });
+  });
 }
 
 function updateSummary() {
@@ -1198,332 +1235,44 @@ function updateSummary() {
   document.getElementById('updated').textContent = 'as of ' + todayStr();
 
   const statusList = document.getElementById('status-progress-list');
-  statusList.innerHTML = '';
-  Object.keys(STATUS).forEach(s => {
-    const count = tasks.filter(t => t.status === s).length;
-    const pct = total ? Math.round((count / total) * 100) : 0;
-    const row = document.createElement('div');
-    row.className = 'cat-progress-row';
-    row.style.setProperty('--cat-color', STATUS[s]);
-    row.innerHTML = `
-      <div class="cat-progress-fill" style="width:${count ? pct : 0}%;"></div>
-      <div class="cat-progress-label">
-        <span>${s}</span>
-        <span>${count ? `[${count}/${total}] ${pct}%` : 'No tasks'}</span>
-      </div>
-    `;
-    statusList.appendChild(row);
-  });
+  if (statusList) {
+    const statuses = ['Done', 'In progress', 'Not started', 'Blocked'];
+    statusList.innerHTML = statuses.map(s => {
+      const count = tasks.filter(t => t.status === s).length;
+      const pct = total ? Math.round((count / total) * 100) : 0;
+      return `
+        <div class="progress-bar-row">
+          <div class="progress-bar-label">${s}</div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" style="width:${pct}%; background:${STATUS[s]};"></div>
+          </div>
+          <div class="progress-bar-text">${count} (${pct}%)</div>
+        </div>
+      `;
+    }).join('');
+  }
 
-  const progressList = document.getElementById('category-progress-list');
-  progressList.innerHTML = '';
-  const catNames = [...categories];
-  const uncategorizedCount = tasks.filter(t => !categories.includes(t.category)).length;
-  if (uncategorizedCount) catNames.push('Uncategorized');
-
-  catNames.forEach((name, idx) => {
-    const inCategory = name === 'Uncategorized'
-      ? tasks.filter(t => !categories.includes(t.category))
-      : tasks.filter(t => t.category === name);
-    const y = inCategory.length;
-    const x = inCategory.filter(t => t.status === 'Done').length;
-    const pct = y ? Math.round((x / y) * 100) : 0;
-    const color = CATEGORY_COLORS[idx % CATEGORY_COLORS.length];
-
-    const row = document.createElement('div');
-    row.className = 'cat-progress-row';
-    row.style.setProperty('--cat-color', color);
-    row.innerHTML = `
-      <div class="cat-progress-fill" style="width:${y ? pct : 0}%;"></div>
-      <div class="cat-progress-label">
-        <span>${name}</span>
-        <span>${y ? `[${x}/${y}] ${pct}%` : 'No tasks'}</span>
-      </div>
-    `;
-    progressList.appendChild(row);
-  });
-
-  if (!catNames.length) {
-    progressList.innerHTML = '<p class="cat-empty">No categories yet — add one to see progress here.</p>';
+  const categoryList = document.getElementById('category-progress-list');
+  if (categoryList) {
+    categoryList.innerHTML = categories.map(cat => {
+      const catTasks = tasks.filter(t => t.category === cat);
+      const catCount = catTasks.length;
+      const done = catTasks.filter(t => t.status === 'Done').length;
+      const pct = catCount ? Math.round((done / catCount) * 100) : 0;
+      return `
+        <div class="progress-bar-row">
+          <div class="progress-bar-label">${cat}</div>
+          <div class="progress-bar">
+            <div class="progress-bar-fill" style="width:${pct}%;"></div>
+          </div>
+          <div class="progress-bar-text">${done}/${catCount} (${pct}%)</div>
+        </div>
+      `;
+    }).join('');
   }
 }
 
-document.getElementById('search-input').addEventListener('input', e => {
-  searchQuery = e.target.value;
-  render();
-});
-
-document.getElementById('sort-select').addEventListener('change', e => {
-  sortMode = e.target.value;
-  render();
-});
-
-document.getElementById('overdue-only').addEventListener('change', e => {
-  overdueOnly = e.target.checked;
-  render();
-});
-
-document.getElementById('starred-only').addEventListener('change', e => {
-  starredOnly = e.target.checked;
-  render();
-});
-
-document.getElementById('tag-filter').addEventListener('change', e => {
-  tagFilter = e.target.value;
-  render();
-});
-
-// --- Bulk actions ----------------------------------------------------------
-document.getElementById('select-all').addEventListener('change', e => {
-  const visibleIds = [...document.querySelectorAll('#rows .row-select:not(:disabled)')].map(cb => cb.dataset.taskId);
-  if (e.target.checked) {
-    visibleIds.forEach(id => selectedTaskIds.add(id));
-  } else {
-    visibleIds.forEach(id => selectedTaskIds.delete(id));
-  }
-  render();
-});
-
-document.getElementById('bulk-done-btn').addEventListener('click', () => {
-  const affected = tasks.filter(t => selectedTaskIds.has(t.id) && !isBlocked(t));
-  const skipped = tasks.filter(t => selectedTaskIds.has(t.id) && isBlocked(t));
-  const clones = [];
-  affected.forEach(t => {
-    const wasNotDone = t.status !== 'Done';
-    t.status = 'Done';
-    t.progress = 100;
-    if (wasNotDone && t.recurring) {
-      clones.push(createRecurringClone(t));
-    }
-  });
-  if (clones.length) tasks.push(...clones);
-  if (affected.length) logActivity(`Marked ${affected.length} task${affected.length === 1 ? '' : 's'} as Done`);
-  if (skipped.length) logActivity(`Skipped ${skipped.length} blocked task${skipped.length === 1 ? '' : 's'} waiting on a dependency`);
-  clones.forEach(clone => logActivity(`Recurring task "${clone.task}" scheduled for next cycle`));
-  selectedTaskIds.clear();
-  saveTasks();
-  render();
-  renderGanttChart();
-});
-
-document.getElementById('bulk-delete-btn').addEventListener('click', () => {
-  const count = selectedTaskIds.size;
-  if (!count) return;
-  if (!confirm(`Delete ${count} task${count === 1 ? '' : 's'}? This can't be undone.`)) return;
-  tasks = tasks.filter(t => !selectedTaskIds.has(t.id));
-  tasks.forEach(t => { if (t.dependsOn) t.dependsOn = t.dependsOn.filter(id => !selectedTaskIds.has(id)); });
-  logActivity(`Deleted ${count} task${count === 1 ? '' : 's'} (bulk action)`);
-  selectedTaskIds.clear();
-  saveTasks();
-  render();
-  renderGanttChart();
-});
-
-document.getElementById('bulk-category-select').addEventListener('change', e => {
-  const category = e.target.value;
-  if (!category) return;
-  const affected = tasks.filter(t => selectedTaskIds.has(t.id) && !isBlocked(t));
-  affected.forEach(t => { t.category = category; });
-  logActivity(`Moved ${affected.length} task${affected.length === 1 ? '' : 's'} to "${category}"`);
-  selectedTaskIds.clear();
-  e.target.value = '';
-  saveTasks();
-  render();
-});
-
-document.getElementById('bulk-clear-btn').addEventListener('click', () => {
-  selectedTaskIds.clear();
-  render();
-});
-
-document.getElementById('add-category').addEventListener('click', () => {
-  const name = window.prompt('New category name:');
-  if (!name) return;
-  const trimmed = name.trim();
-  if (!trimmed) return;
-  if (categories.includes(trimmed)) {
-    alert('That category already exists.');
-    return;
-  }
-  categories.push(trimmed);
-  logActivity(`Category "${trimmed}" created`);
-  saveCategories();
-  render();
-});
-
-document.getElementById('add-row').addEventListener('click', () => {
-  tasks.push({ task: 'New task', owner: '', status: 'Not started', priority: 'Medium', category: categories[0], start: todayStr(), due: todayStr(), progress: 0, subtasks: [] });
-  logActivity('New task created');
-  render();
-  saveTasks();
-  renderGanttChart();
-});
-
-// --- Toolbar overflow menu --------------------------------------------------
-const toolbarMenuBtn = document.getElementById('toolbar-menu-btn');
-const toolbarMenuDropdown = document.getElementById('toolbar-menu-dropdown');
-
-function closeToolbarMenu() {
-  toolbarMenuDropdown.classList.remove('open');
-  toolbarMenuBtn.classList.remove('open');
-  toolbarMenuBtn.setAttribute('aria-expanded', 'false');
-}
-
-toolbarMenuBtn.addEventListener('click', e => {
-  e.stopPropagation();
-  const isOpen = toolbarMenuDropdown.classList.toggle('open');
-  toolbarMenuBtn.classList.toggle('open', isOpen);
-  toolbarMenuBtn.setAttribute('aria-expanded', String(isOpen));
-});
-
-// Picking any action inside the menu closes it right after.
-toolbarMenuDropdown.addEventListener('click', e => {
-  if (e.target.tagName === 'BUTTON') closeToolbarMenu();
-});
-
-document.addEventListener('click', e => {
-  if (!toolbarMenuDropdown.contains(e.target) && e.target !== toolbarMenuBtn) closeToolbarMenu();
-});
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeToolbarMenu();
-});
-
-document.getElementById('export-btn').addEventListener('click', () => {
-  const data = tasks.map(t => ({
-    Task: t.task,
-    Category: t.category || '',
-    Owner: t.owner,
-    Status: t.status,
-    Priority: t.priority,
-    Tags: (t.tags || []).join(', '),
-    Start: t.start || '',
-    Due: t.due,
-    "% complete": t.progress / 100,
-    Notes: t.notes || ''
-  }));
-  const ws = XLSX.utils.json_to_sheet(data);
-  ws['!cols'] = [{ wch: 30 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 10 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 40 }];
-  const range = XLSX.utils.decode_range(ws['!ref']);
-  for (let r = 1; r <= range.e.r; r++) {
-    const cell = ws[XLSX.utils.encode_cell({ r, c: 8 })];
-    if (cell) cell.z = '0%';
-  }
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Tracker');
-  const stamp = todayStr();
-  XLSX.writeFile(wb, `project_tracker_backup_${stamp}.xlsx`);
-  logActivity('Project data exported to Excel');
-});
-
-refreshProjectHeader();
-render();
-renderGanttChart();
-renderActivityFeed();
-
-// --- Project switcher wiring ------------------------------------------------
-document.getElementById('project-name-input').addEventListener('blur', e => {
-  renameActiveProject(e.target.value);
-});
-document.getElementById('project-name-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') e.target.blur();
-});
-document.getElementById('project-switcher').addEventListener('change', e => {
-  switchToProject(e.target.value);
-});
-document.getElementById('new-project-btn').addEventListener('click', createNewProject);
-document.getElementById('delete-project-btn').addEventListener('click', deleteActiveProject);
-document.getElementById('archived-projects-btn').addEventListener('click', openArchivedProjects);
-
-// --- Calendar view ---------------------------------------------------------
-let calendarMonth = new Date().getMonth();
-let calendarYear = new Date().getFullYear();
-
-function getRecurrenceCycleDays(t) {
-  return RECURRENCE_CYCLE_DAYS;
-}
-
-// A recurring task only becomes a real new row once you mark the current
-// instance Done. Until then, project where it *will* land on future weeks
-// so the calendar reflects the weekly pattern proactively, not retroactively.
-function isProjectedRecurrence(t, dateStr) {
-  if (!t.recurring || !t.due || t.status === 'Done') return false;
-  if (dateStr <= t.due) return false;
-  const cycle = getRecurrenceCycleDays(t);
-  const diffDays = Math.round((new Date(dateStr) - new Date(t.due)) / (1000 * 60 * 60 * 24));
-  return diffDays > 0 && diffDays % cycle === 0;
-}
-
-function renderCalendar() {
-  const grid = document.getElementById('calendar-grid');
-  const label = document.getElementById('cal-month-label');
-  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-  label.textContent = `${monthNames[calendarMonth]} ${calendarYear}`;
-
-  grid.innerHTML = '';
-  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
-    const el = document.createElement('div');
-    el.className = 'cal-weekday';
-    el.textContent = d;
-    grid.appendChild(el);
-  });
-
-  const firstOfMonth = new Date(calendarYear, calendarMonth, 1);
-  const startOffset = firstOfMonth.getDay(); // 0=Sun
-  const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
-  const daysInPrevMonth = new Date(calendarYear, calendarMonth, 0).getDate();
-  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
-  const today = todayStr();
-
-  for (let cell = 0; cell < totalCells; cell++) {
-    const dayNum = cell - startOffset + 1;
-    let cellDate, otherMonth = false;
-    if (dayNum < 1) {
-      cellDate = new Date(calendarYear, calendarMonth - 1, daysInPrevMonth + dayNum);
-      otherMonth = true;
-    } else if (dayNum > daysInMonth) {
-      cellDate = new Date(calendarYear, calendarMonth + 1, dayNum - daysInMonth);
-      otherMonth = true;
-    } else {
-      cellDate = new Date(calendarYear, calendarMonth, dayNum);
-    }
-    const dateStr = cellDate.toISOString().slice(0, 10);
-
-    const dayEl = document.createElement('div');
-    dayEl.className = 'cal-day' + (otherMonth ? ' other-month' : '') + (dateStr === today ? ' today' : '');
-
-    const dueTasks = tasks.filter(t => t.due === dateStr);
-    const projected = tasks.filter(t => isProjectedRecurrence(t, dateStr));
-    const allForDay = [...dueTasks, ...projected];
-    const shown = allForDay.slice(0, 3);
-    const extra = allForDay.length - shown.length;
-
-    dayEl.innerHTML = `
-      <span class="cal-day-num">${cellDate.getDate()}</span>
-      ${shown.map(t => {
-        const isProjectedOnly = !dueTasks.includes(t);
-        const isOverdue = !isProjectedOnly && t.due < today && t.status !== 'Done';
-        const label = isProjectedOnly ? `🔁 ${t.task}` : t.task;
-        const title = isProjectedOnly ? `${t.task} — projected weekly recurrence` : `${t.task} — ${t.status}`;
-        return `<span class="cal-task-chip ${isOverdue ? 'overdue-chip' : ''} ${isProjectedOnly ? 'projected-chip' : ''}" style="background:${STATUS[t.status]};" title="${title}">${label}</span>`;
-      }).join('')}
-      ${extra > 0 ? `<span class="cal-more">+${extra} more</span>` : ''}
-    `;
-    grid.appendChild(dayEl);
-  }
-}
-
-document.getElementById('cal-prev').addEventListener('click', () => {
-  calendarMonth--;
-  if (calendarMonth < 0) { calendarMonth = 11; calendarYear--; }
-  renderCalendar();
-});
-document.getElementById('cal-next').addEventListener('click', () => {
-  calendarMonth++;
-  if (calendarMonth > 11) { calendarMonth = 0; calendarYear++; }
-  renderCalendar();
-});
-
+// --- View switching ---------------------------------------------------------
 document.getElementById('view-table-btn').addEventListener('click', () => {
   document.getElementById('table-view').style.display = 'block';
   document.getElementById('calendar-view').style.display = 'none';
@@ -1703,6 +1452,27 @@ document.getElementById('json-import-input').addEventListener('change', e => {
   reader.readAsText(file);
 });
 
+// --- Excel export --------------------------------------------------------
+document.getElementById('export-btn').addEventListener('click', () => {
+  const data = tasks.map(t => ({
+    Task: t.task,
+    Category: t.category || '',
+    Owner: t.owner,
+    Status: t.status,
+    Priority: t.priority,
+    Tags: (t.tags || []).join(', '),
+    Start: t.start || '',
+    Due: t.due || '',
+    Progress: t.progress + '%',
+    Notes: t.notes || ''
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Tasks');
+  XLSX.writeFile(wb, `project_tracker_${todayStr()}.xlsx`);
+  logActivity('Tasks exported to Excel');
+});
+
 // --- Keyboard shortcuts ---------------------------------------------------
 document.addEventListener('keydown', e => {
   const tag = (document.activeElement.tagName || '').toLowerCase();
@@ -1723,6 +1493,127 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// --- Select all functionality -----------------------------------------------
+document.getElementById('select-all').addEventListener('change', e => {
+  // Only select non-blocked visible tasks
+  const visibleCheckboxes = document.querySelectorAll('#rows .row-select:not(:disabled)');
+  const visibleIds = Array.from(visibleCheckboxes).map(cb => cb.dataset.taskId);
+  
+  if (e.target.checked) {
+    visibleIds.forEach(id => selectedTaskIds.add(id));
+  } else {
+    visibleIds.forEach(id => selectedTaskIds.delete(id));
+  }
+  render();
+});
+
+// --- Bulk actions -----------------------------------------------------------
+document.getElementById('bulk-done-btn').addEventListener('click', () => {
+  const affected = tasks.filter(t => selectedTaskIds.has(t.id) && !isBlocked(t));
+  const skipped = tasks.filter(t => selectedTaskIds.has(t.id) && isBlocked(t));
+  const clones = [];
+  affected.forEach(t => {
+    const wasNotDone = t.status !== 'Done';
+    t.status = 'Done';
+    t.progress = 100;
+    if (wasNotDone && t.recurring) {
+      clones.push(createRecurringClone(t));
+    }
+  });
+  if (clones.length) tasks.push(...clones);
+  if (affected.length) logActivity(`Marked ${affected.length} task${affected.length === 1 ? '' : 's'} as Done`);
+  if (skipped.length) logActivity(`Skipped ${skipped.length} blocked task${skipped.length === 1 ? '' : 's'} waiting on a dependency`);
+  clones.forEach(clone => logActivity(`Recurring task "${clone.task}" scheduled for next cycle`));
+  selectedTaskIds.clear();
+  saveTasks();
+  render();
+  renderGanttChart();
+});
+
+document.getElementById('bulk-delete-btn').addEventListener('click', () => {
+  const count = selectedTaskIds.size;
+  if (!count) return;
+  if (!confirm(`Delete ${count} task${count === 1 ? '' : 's'}? This can't be undone.`)) return;
+  tasks = tasks.filter(t => !selectedTaskIds.has(t.id));
+  tasks.forEach(t => { if (t.dependsOn) t.dependsOn = t.dependsOn.filter(id => !selectedTaskIds.has(id)); });
+  logActivity(`Deleted ${count} task${count === 1 ? '' : 's'} (bulk action)`);
+  selectedTaskIds.clear();
+  saveTasks();
+  render();
+  renderGanttChart();
+});
+
+document.getElementById('bulk-category-select').addEventListener('change', e => {
+  const category = e.target.value;
+  if (!category) return;
+  const affected = tasks.filter(t => selectedTaskIds.has(t.id) && !isBlocked(t));
+  affected.forEach(t => { t.category = category; });
+  logActivity(`Moved ${affected.length} task${affected.length === 1 ? '' : 's'} to "${category}"`);
+  selectedTaskIds.clear();
+  e.target.value = '';
+  saveTasks();
+  render();
+});
+
+document.getElementById('bulk-clear-btn').addEventListener('click', () => {
+  selectedTaskIds.clear();
+  render();
+});
+
+document.getElementById('add-category').addEventListener('click', () => {
+  const name = window.prompt('New category name:');
+  if (!name) return;
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  if (categories.includes(trimmed)) {
+    alert('That category already exists.');
+    return;
+  }
+  categories.push(trimmed);
+  logActivity(`Category "${trimmed}" created`);
+  saveCategories();
+  render();
+});
+
+document.getElementById('add-row').addEventListener('click', () => {
+  tasks.push({ id: makeId(), task: 'New task', owner: '', status: 'Not started', priority: 'Medium', category: categories.length ? categories[0] : '📋 Requirements', start: todayStr(), due: todayStr(), progress: 0, subtasks: [] });
+  logActivity('New task created');
+  render();
+  saveTasks();
+  renderGanttChart();
+});
+
+// --- Toolbar overflow menu --------------------------------------------------
+const toolbarMenuBtn = document.getElementById('toolbar-menu-btn');
+const toolbarMenuDropdown = document.getElementById('toolbar-menu-dropdown');
+
+function closeToolbarMenu() {
+  toolbarMenuDropdown.classList.remove('open');
+  toolbarMenuBtn.classList.remove('open');
+  toolbarMenuBtn.setAttribute('aria-expanded', 'false');
+}
+
+toolbarMenuBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  const isOpen = toolbarMenuDropdown.classList.toggle('open');
+  toolbarMenuBtn.classList.toggle('open', isOpen);
+  toolbarMenuBtn.setAttribute('aria-expanded', String(isOpen));
+});
+
+// Picking any action inside the menu closes it right after.
+toolbarMenuDropdown.addEventListener('click', e => {
+  if (e.target.tagName === 'BUTTON') closeToolbarMenu();
+});
+
+document.addEventListener('click', e => {
+  if (!toolbarMenuDropdown.contains(e.target) && e.target !== toolbarMenuBtn) closeToolbarMenu();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeToolbarMenu();
+});
+
+// --- Theme toggle -----------------------------------------------------------
 const toggleBtn = document.getElementById('theme-toggle');
 function currentIsDark() {
   const explicit = document.documentElement.getAttribute('data-theme');
@@ -1738,3 +1629,7 @@ toggleBtn.addEventListener('click', () => {
   updateToggleIcon();
 });
 updateToggleIcon();
+
+// Initial render
+render();
+renderGanttChart();
