@@ -262,7 +262,35 @@ let activities = [];
 function loadActivities() {
   try {
     const saved = localStorage.getItem(scopedKey('activities'));
-    if (saved) return JSON.parse(saved);
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+
+    // Repair entries that don't match the current {time, msg} shape —
+    // e.g. leftovers from an older version of the tracker that used
+    // different field names, or stored the log as plain strings. Anything
+    // with no usable message is dropped rather than kept around forever
+    // as "Invalid Date undefined".
+    const repaired = parsed.map(a => {
+      if (typeof a === 'string' && a.trim()) {
+        return { time: new Date().toISOString(), msg: a };
+      }
+      if (a && typeof a === 'object') {
+        const msg = [a.msg, a.text, a.message, a.action, a.description]
+          .find(v => typeof v === 'string' && v.trim());
+        if (!msg) return null;
+        const rawTime = a.time || a.timestamp || a.date || a.at;
+        const time = rawTime && !isNaN(new Date(rawTime).getTime()) ? rawTime : new Date().toISOString();
+        return { time, msg };
+      }
+      return null;
+    }).filter(Boolean);
+
+    if (repaired.length !== parsed.length || JSON.stringify(repaired) !== JSON.stringify(parsed)) {
+      try { localStorage.setItem(scopedKey('activities'), JSON.stringify(repaired)); } catch (e) {}
+    }
+
+    return repaired;
   } catch (e) {}
   return [];
 }
@@ -284,9 +312,9 @@ function renderActivityFeed() {
   const container = document.getElementById('activity-feed');
   if (!container) return;
   const feed = container.querySelector('div') || container;
-  feed.innerHTML = activities.slice().reverse().map((a, idx) => {
+  feed.innerHTML = activities.slice().reverse().filter(a => a && a.msg).map((a, idx) => {
     const date = new Date(a.time);
-    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const time = isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return `<div class="activity-item"><span class="activity-time">${time}</span> ${a.msg}</div>`;
   }).join('');
 }
