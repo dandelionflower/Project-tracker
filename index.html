@@ -398,6 +398,27 @@
     align-items: baseline;
     justify-content: space-between;
   }
+  .group-name-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .group-collapse-btn {
+    border: none;
+    background: transparent;
+    color: var(--ink-faint);
+    cursor: pointer;
+    font-size: 11px;
+    line-height: 1;
+    padding: 4px;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease;
+  }
+  .group-collapse-btn:hover { background: var(--surface); color: var(--ink); }
+  .group-collapse-btn.collapsed { transform: rotate(-90deg); }
   .group-name {
     font-family: 'Bricolage Grotesque', sans-serif;
     font-weight: 600;
@@ -908,7 +929,7 @@
   @media print {
     body { background: white; padding: 0; }
     .toolbar, .add-row, .theme-toggle, .toolbar-menu-wrap, .notify-toggle, .subtask-toggle,
-    .recurring-toggle, .drag-handle, .del-btn, .del-category-btn,
+    .recurring-toggle, .drag-handle, .del-btn, .del-category-btn, .group-collapse-btn,
     .gantt-container, .activity-feed, input[type="range"],
     .view-toggle-row, .bulk-action-bar, .row-select, #calendar-view,
     .tag-add-btn, .tag-chip button, .deps-toggle,
