@@ -344,6 +344,44 @@
   }
   .export-btn:hover { color: var(--ink); border-color: var(--ink-faint); }
 
+  .toolbar-menu-wrap { position: relative; }
+  .toolbar-menu-btn {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-soft);
+    border-radius: 999px;
+    width: 34px; height: 34px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    font-size: 15px;
+  }
+  .toolbar-menu-btn:hover, .toolbar-menu-btn.open { color: var(--ink); border-color: var(--ink-faint); }
+  .toolbar-menu-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    padding: 6px;
+    min-width: 190px;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 20;
+  }
+  .toolbar-menu-dropdown.open { display: flex; }
+  .toolbar-menu-dropdown button {
+    display: flex; align-items: center; gap: 8px;
+    border: none; background: transparent; color: var(--ink);
+    padding: 8px 10px; border-radius: 6px;
+    font-size: 14px; font-weight: 500;
+    cursor: pointer; text-align: left; width: 100%;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+  .toolbar-menu-dropdown button:hover { background: var(--bg); }
+
   .save-status {
     font-size: 13px;
     color: var(--ink-faint);
@@ -867,7 +905,7 @@
 
   @media print {
     body { background: white; padding: 0; }
-    .toolbar, .add-row, .theme-toggle, .export-btn, .notify-toggle, .subtask-toggle,
+    .toolbar, .add-row, .theme-toggle, .toolbar-menu-wrap, .notify-toggle, .subtask-toggle,
     .recurring-toggle, .drag-handle, .del-btn, .del-category-btn,
     .gantt-container, .activity-feed, input[type="range"],
     .view-toggle-row, .bulk-action-bar, .row-select, #calendar-view,
@@ -899,10 +937,15 @@
     </div>
     <div style="display:flex; align-items:center; gap:12px;">
       <span class="save-status" id="save-status"></span>
-      <button class="export-btn" id="export-btn">⬇ Export to Excel</button>
-      <button class="export-btn" id="print-btn">🖨 Print report</button>
-      <button class="export-btn" id="json-export-btn">⬇ Backup (JSON)</button>
-      <button class="export-btn" id="json-import-btn">⬆ Restore (JSON)</button>
+      <div class="toolbar-menu-wrap">
+        <button class="toolbar-menu-btn" id="toolbar-menu-btn" aria-label="More actions" aria-haspopup="true" aria-expanded="false">☰</button>
+        <div class="toolbar-menu-dropdown" id="toolbar-menu-dropdown">
+          <button id="export-btn">⬇ Export to Excel</button>
+          <button id="print-btn">🖨 Print report</button>
+          <button id="json-export-btn">⬇ Backup (JSON)</button>
+          <button id="json-import-btn">⬆ Restore (JSON)</button>
+        </div>
+      </div>
       <input type="file" id="json-import-input" accept="application/json" style="display:none;" />
       <div class="updated" id="updated"></div>
       <button class="notify-toggle" id="notify-btn" aria-label="Toggle due alerts">🔔</button>
