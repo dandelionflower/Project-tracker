@@ -160,7 +160,7 @@ function renameActiveProject(newName) {
   const oldName = project.name;
   project.name = trimmed;
   saveProjects();
-  logActivity(`Project renamed from "${oldName}" to "${trimmed}"`);
+  logActivity(`Project renamed from "${oldName}" to "${trimmed}"`, 'update');
   refreshProjectHeader();
 }
 
@@ -185,7 +185,7 @@ function deleteActiveProject() {
   if (!confirm(`Archive project "${project.name}"? Its data will be kept, and you can restore it anytime from the 🗃 Archived list.`)) return;
 
   project.archived = true;
-  logActivity(`Project "${project.name}" archived`);
+  logActivity(`Project "${project.name}" archived`, 'delete');
   saveProjects();
 
   const nextProject = activeProjects()[0];
@@ -273,14 +273,29 @@ function saveActivities() {
   } catch (e) {}
 }
 
-function logActivity(message) {
+// Every log entry is tagged with a CRUD-style type so the Activity Feed can
+// show what *kind* of change happened, not just a free-text description.
+// 'info' covers things that aren't a data change (exports, backups, skipped
+// bulk actions) but are still worth a line in the feed.
+function logActivity(message, type) {
   const now = new Date();
   const timestamp = now.toISOString();
   const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-  activities.unshift({ timestamp, time, message });
+  activities.unshift({ timestamp, time, message, type: type || 'update' });
   if (activities.length > 100) activities.pop();
   saveActivities();
   renderActivityFeed();
+}
+
+// Entries logged before this feature existed have no `type` field. Rather
+// than showing them all as a generic "Update", guess from the wording so
+// old history still gets a sensible badge.
+function inferCrudType(message) {
+  const m = message.toLowerCase();
+  if (/\bdeleted\b|\bremoved\b/.test(m)) return 'delete';
+  if (/\bcreated\b|\bnew task\b|\bscheduled for next cycle\b|\badded\b/.test(m)) return 'create';
+  if (/\bexported\b|\bbackup\b|\brestored from backup\b|\bskipped\b/.test(m)) return 'info';
+  return 'update';
 }
 
 const STATUS = {
@@ -594,29 +609,54 @@ function renderGanttChart() {
 }
 
 
+const CRUD_BADGE_LABEL = { create: 'CREATE', update: 'UPDATE', delete: 'DELETE', info: 'INFO' };
+
+function formatActivityDateTime(act) {
+  // Older entries (logged before date+time display existed) only ever had
+  // `time`, not a full `timestamp` — fall back gracefully if it's missing
+  // or unparsable rather than showing "Invalid Date".
+  const d = act.timestamp ? new Date(act.timestamp) : null;
+  if (!d || isNaN(d.getTime())) return act.time || '';
+  const datePart = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const timePart = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  return `${datePart} · ${timePart}`;
+}
+
 function renderActivityFeed() {
   const feedEl = document.getElementById('activity-feed');
   if (!feedEl) return;
   feedEl.innerHTML = '';
 
   if (!activities.length) {
-    feedEl.innerHTML = '<p style="padding: 12px; color: var(--ink-faint); font-size: 12px;">No activity yet.</p>';
+    feedEl.innerHTML = '<p style="padding: 12px; color: var(--ink-faint); font-size: 14px;">No activity yet.</p>';
     return;
   }
 
   activities.slice(0, 30).forEach(act => {
+    const type = act.type || inferCrudType(act.message);
+
     const item = document.createElement('div');
-    item.style.cssText = 'padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px;';
-    
+    item.className = 'activity-item-row';
+
+    const left = document.createElement('div');
+    left.className = 'activity-item-left';
+
+    const badge = document.createElement('span');
+    badge.className = `crud-badge crud-${type}`;
+    badge.textContent = CRUD_BADGE_LABEL[type] || 'UPDATE';
+
     const msg = document.createElement('span');
-    msg.style.cssText = 'font-size: 12px; color: var(--ink-soft); flex: 1;';
+    msg.className = 'activity-msg';
     msg.textContent = act.message;
-    
+
+    left.appendChild(badge);
+    left.appendChild(msg);
+
     const time = document.createElement('span');
-    time.style.cssText = 'font-family: JetBrains Mono, monospace; font-size: 11px; color: var(--ink-faint); white-space: nowrap;';
-    time.textContent = act.time;
-    
-    item.appendChild(msg);
+    time.className = 'activity-datetime';
+    time.textContent = formatActivityDateTime(act);
+
+    item.appendChild(left);
     item.appendChild(time);
     feedEl.appendChild(item);
   });
@@ -884,9 +924,9 @@ function render() {
       
       // Log activity
       if (f === 'status') {
-        logActivity(`Task "${tasks[i].task}" status changed to ${tasks[i][f]}`);
+        logActivity(`Task "${tasks[i].task}" status changed to ${tasks[i][f]}`, 'update');
       } else if (f === 'progress') {
-        logActivity(`Task "${tasks[i].task}" progress updated to ${tasks[i][f]}%`);
+        logActivity(`Task "${tasks[i].task}" progress updated to ${tasks[i][f]}%`, 'update');
       }
       
       saveTasks();
@@ -907,7 +947,7 @@ function render() {
         if (t.status === 'Done' && oldValue !== 'Done' && t.recurring) {
           const clone = createRecurringClone(t);
           tasks.push(clone);
-          logActivity(`Recurring task "${clone.task}" scheduled for next cycle`);
+          logActivity(`Recurring task "${clone.task}" scheduled for next cycle`, 'create');
           saveTasks();
         }
         updateSummary();
@@ -981,7 +1021,7 @@ function render() {
       tasks.splice(newTargetIdx, 0, moved);
 
       dragSrcTaskId = null;
-      logActivity(`Reordered "${moved.task}"`);
+      logActivity(`Reordered "${moved.task}"`, 'update');
 
       const oldRects = captureRowRects();
       saveTasks();
@@ -996,7 +1036,7 @@ function render() {
       const taskName = deletedTask.task;
       tasks.splice(Number(e.currentTarget.dataset.i), 1);
       tasks.forEach(t => { if (t.dependsOn) t.dependsOn = t.dependsOn.filter(id => id !== deletedTask.id); });
-      logActivity(`Task "${taskName}" deleted`);
+      logActivity(`Task "${taskName}" deleted`, 'delete');
       render();
       saveTasks();
       renderGanttChart();
@@ -1022,7 +1062,7 @@ function render() {
 
       tasks.forEach(t => { if (t.category === name) t.category = undefined; });
       categories = categories.filter(c => c !== name);
-      logActivity(`Category "${name}" deleted`);
+      logActivity(`Category "${name}" deleted`, 'delete');
       saveCategories();
       saveTasks();
       render();
@@ -1043,7 +1083,7 @@ function render() {
       const i = Number(e.currentTarget.dataset.i);
       if (isBlocked(tasks[i])) return;
       tasks[i].recurring = !tasks[i].recurring;
-      logActivity(`Task "${tasks[i].task}" ${tasks[i].recurring ? 'set to repeat weekly' : 'no longer recurring'}`);
+      logActivity(`Task "${tasks[i].task}" ${tasks[i].recurring ? 'set to repeat weekly' : 'no longer recurring'}`, 'update');
       saveTasks();
       render();
     });
@@ -1054,7 +1094,7 @@ function render() {
       const i = Number(e.currentTarget.dataset.i);
       if (isBlocked(tasks[i])) return;
       tasks[i].starred = !tasks[i].starred;
-      logActivity(`Task "${tasks[i].task}" ${tasks[i].starred ? 'starred' : 'unstarred'}`);
+      logActivity(`Task "${tasks[i].task}" ${tasks[i].starred ? 'starred' : 'unstarred'}`, 'update');
       saveTasks();
       render();
     });
@@ -1094,13 +1134,13 @@ function render() {
       }
 
       tasks[i].dependsOn.push(depId);
-      logActivity(`"${tasks[i].task}" now depends on "${depTask ? depTask.task : 'a task'}"`);
+      logActivity(`"${tasks[i].task}" now depends on "${depTask ? depTask.task : 'a task'}"`, 'update');
 
       // A daughter task depending on an unfinished mother task is blocked
       // right away — don't wait for the next status edit to reflect that.
       if (depTask && depTask.status !== 'Done' && tasks[i].status !== 'Blocked') {
         tasks[i].status = 'Blocked';
-        logActivity(`"${tasks[i].task}" automatically set to Blocked (waiting on "${depTask.task}")`);
+        logActivity(`"${tasks[i].task}" automatically set to Blocked (waiting on "${depTask.task}")`, 'update');
       }
 
       saveTasks();
@@ -1130,7 +1170,7 @@ function render() {
       if (!tasks[i].tags) tasks[i].tags = [];
       if (tasks[i].tags.some(x => x.toLowerCase() === tag.toLowerCase())) return;
       tasks[i].tags.push(tag);
-      logActivity(`Tag "${tag}" added to "${tasks[i].task}"`);
+      logActivity(`Tag "${tag}" added to "${tasks[i].task}"`, 'update');
       saveTasks();
       render();
     });
@@ -1142,7 +1182,7 @@ function render() {
       if (isBlocked(tasks[i])) return;
       const tag = e.currentTarget.dataset.tag;
       tasks[i].tags = (tasks[i].tags || []).filter(x => x !== tag);
-      logActivity(`Tag "${tag}" removed from "${tasks[i].task}"`);
+      logActivity(`Tag "${tag}" removed from "${tasks[i].task}"`, 'update');
       saveTasks();
       render();
     });
@@ -1152,7 +1192,7 @@ function render() {
     cb.addEventListener('change', e => {
       const i = Number(e.target.dataset.i), si = Number(e.target.dataset.si);
       tasks[i].subtasks[si].done = e.target.checked;
-      logActivity(`Subtask "${tasks[i].subtasks[si].text}" ${e.target.checked ? 'completed' : 'unchecked'}`);
+      logActivity(`Subtask "${tasks[i].subtasks[si].text}" ${e.target.checked ? 'completed' : 'unchecked'}`, 'update');
       syncProgress(tasks[i]);
       saveTasks();
       render();
@@ -1165,7 +1205,7 @@ function render() {
       const i = Number(e.currentTarget.dataset.i), si = Number(e.currentTarget.dataset.si);
       const subtaskText = tasks[i].subtasks[si].text;
       tasks[i].subtasks.splice(si, 1);
-      logActivity(`Subtask "${subtaskText}" deleted`);
+      logActivity(`Subtask "${subtaskText}" deleted`, 'delete');
       syncProgress(tasks[i]);
       saveTasks();
       render();
@@ -1178,7 +1218,7 @@ function render() {
     if (!text) return;
     if (!tasks[i].subtasks) tasks[i].subtasks = [];
     tasks[i].subtasks.push({ text, done: false });
-    logActivity(`Subtask added to "${tasks[i].task}"`);
+    logActivity(`Subtask added to "${tasks[i].task}"`, 'create');
     syncProgress(tasks[i]);
     saveTasks();
     render();
@@ -1312,9 +1352,9 @@ document.getElementById('bulk-done-btn').addEventListener('click', () => {
     }
   });
   if (clones.length) tasks.push(...clones);
-  if (affected.length) logActivity(`Marked ${affected.length} task${affected.length === 1 ? '' : 's'} as Done`);
-  if (skipped.length) logActivity(`Skipped ${skipped.length} blocked task${skipped.length === 1 ? '' : 's'} waiting on a dependency`);
-  clones.forEach(clone => logActivity(`Recurring task "${clone.task}" scheduled for next cycle`));
+  if (affected.length) logActivity(`Marked ${affected.length} task${affected.length === 1 ? '' : 's'} as Done`, 'update');
+  if (skipped.length) logActivity(`Skipped ${skipped.length} blocked task${skipped.length === 1 ? '' : 's'} waiting on a dependency`, 'info');
+  clones.forEach(clone => logActivity(`Recurring task "${clone.task}" scheduled for next cycle`, 'create'));
   selectedTaskIds.clear();
   saveTasks();
   render();
@@ -1327,7 +1367,7 @@ document.getElementById('bulk-delete-btn').addEventListener('click', () => {
   if (!confirm(`Delete ${count} task${count === 1 ? '' : 's'}? This can't be undone.`)) return;
   tasks = tasks.filter(t => !selectedTaskIds.has(t.id));
   tasks.forEach(t => { if (t.dependsOn) t.dependsOn = t.dependsOn.filter(id => !selectedTaskIds.has(id)); });
-  logActivity(`Deleted ${count} task${count === 1 ? '' : 's'} (bulk action)`);
+  logActivity(`Deleted ${count} task${count === 1 ? '' : 's'} (bulk action)`, 'delete');
   selectedTaskIds.clear();
   saveTasks();
   render();
@@ -1339,7 +1379,7 @@ document.getElementById('bulk-category-select').addEventListener('change', e => 
   if (!category) return;
   const affected = tasks.filter(t => selectedTaskIds.has(t.id) && !isBlocked(t));
   affected.forEach(t => { t.category = category; });
-  logActivity(`Moved ${affected.length} task${affected.length === 1 ? '' : 's'} to "${category}"`);
+  logActivity(`Moved ${affected.length} task${affected.length === 1 ? '' : 's'} to "${category}"`, 'update');
   selectedTaskIds.clear();
   e.target.value = '';
   saveTasks();
@@ -1361,14 +1401,14 @@ document.getElementById('add-category').addEventListener('click', () => {
     return;
   }
   categories.push(trimmed);
-  logActivity(`Category "${trimmed}" created`);
+  logActivity(`Category "${trimmed}" created`, 'create');
   saveCategories();
   render();
 });
 
 document.getElementById('add-row').addEventListener('click', () => {
   tasks.push({ task: 'New task', owner: '', status: 'Not started', priority: 'Medium', category: categories[0], start: todayStr(), due: todayStr(), progress: 0, subtasks: [] });
-  logActivity('New task created');
+  logActivity('New task created', 'create');
   render();
   saveTasks();
   renderGanttChart();
@@ -1428,7 +1468,7 @@ document.getElementById('export-btn').addEventListener('click', () => {
   XLSX.utils.book_append_sheet(wb, ws, 'Tracker');
   const stamp = todayStr();
   XLSX.writeFile(wb, `project_tracker_backup_${stamp}.xlsx`);
-  logActivity('Project data exported to Excel');
+  logActivity('Project data exported to Excel', 'info');
 });
 
 refreshProjectHeader();
@@ -1672,7 +1712,7 @@ document.getElementById('json-export-btn').addEventListener('click', () => {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
-  logActivity('Project data exported to JSON');
+  logActivity('Project data exported to JSON', 'info');
 });
 
 document.getElementById('json-import-btn').addEventListener('click', () => {
@@ -1717,7 +1757,7 @@ document.getElementById('json-import-input').addEventListener('change', e => {
     dismissedAlertIds = new Set();
     render();
     renderGanttChart();
-    logActivity(`Restored from backup (${taskCount} tasks)`);
+    logActivity(`Restored from backup (${taskCount} tasks)`, 'info');
     e.target.value = '';
   };
   reader.onerror = () => {
