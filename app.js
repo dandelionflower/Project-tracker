@@ -312,12 +312,26 @@ function addDays(dateStr, days) {
 // still recur weekly, not daily.
 const RECURRENCE_CYCLE_DAYS = 7;
 
+// Recurring clones get a short date suffix so consecutive instances of the
+// same task don't show up as identical, ambiguous duplicates in the table
+// or Gantt chart (e.g. "Eating (Jul 20)", then "Eating (Jul 27)"). Any prior
+// cycle's suffix is stripped first so they don't stack up on repeat.
+function baseTaskName(name) {
+  return name.replace(/ \([A-Za-z]{3} \d{1,2}\)$/, '');
+}
+
+function formatShortDate(dateStr) {
+  const d = new Date(dateStr);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
 function createRecurringClone(t) {
   const newStart = t.due || todayStr();
   const newDue = addDays(newStart, RECURRENCE_CYCLE_DAYS);
   return {
     ...t,
     id: makeId(),
+    task: `${baseTaskName(t.task)} (${formatShortDate(newStart)})`,
     status: 'Not started',
     progress: 0,
     start: newStart,
@@ -1343,6 +1357,36 @@ document.getElementById('add-row').addEventListener('click', () => {
   render();
   saveTasks();
   renderGanttChart();
+});
+
+// --- Toolbar overflow menu --------------------------------------------------
+const toolbarMenuBtn = document.getElementById('toolbar-menu-btn');
+const toolbarMenuDropdown = document.getElementById('toolbar-menu-dropdown');
+
+function closeToolbarMenu() {
+  toolbarMenuDropdown.classList.remove('open');
+  toolbarMenuBtn.classList.remove('open');
+  toolbarMenuBtn.setAttribute('aria-expanded', 'false');
+}
+
+toolbarMenuBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  const isOpen = toolbarMenuDropdown.classList.toggle('open');
+  toolbarMenuBtn.classList.toggle('open', isOpen);
+  toolbarMenuBtn.setAttribute('aria-expanded', String(isOpen));
+});
+
+// Picking any action inside the menu closes it right after.
+toolbarMenuDropdown.addEventListener('click', e => {
+  if (e.target.tagName === 'BUTTON') closeToolbarMenu();
+});
+
+document.addEventListener('click', e => {
+  if (!toolbarMenuDropdown.contains(e.target) && e.target !== toolbarMenuBtn) closeToolbarMenu();
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeToolbarMenu();
 });
 
 document.getElementById('export-btn').addEventListener('click', () => {
