@@ -262,7 +262,28 @@ let activities = [];
 function loadActivities() {
   try {
     const saved = localStorage.getItem(scopedKey('activities'));
-    if (saved) return JSON.parse(saved);
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+
+    // Repair entries that don't match the current {time, msg} shape —
+    // e.g. leftovers from an older version that stored plain strings, or
+    // entries missing a field. Anything with no usable message is dropped
+    // rather than kept around as "Invalid Date undefined".
+    const repaired = parsed.map(a => {
+      if (typeof a === 'string') return { time: new Date().toISOString(), msg: a };
+      if (a && typeof a === 'object' && typeof a.msg === 'string' && a.msg) {
+        const time = a.time && !isNaN(new Date(a.time).getTime()) ? a.time : new Date().toISOString();
+        return { time, msg: a.msg };
+      }
+      return null;
+    }).filter(Boolean);
+
+    if (repaired.length !== parsed.length) {
+      try { localStorage.setItem(scopedKey('activities'), JSON.stringify(repaired)); } catch (e) {}
+    }
+
+    return repaired;
   } catch (e) {}
   return [];
 }
@@ -284,9 +305,9 @@ function renderActivityFeed() {
   const container = document.getElementById('activity-feed');
   if (!container) return;
   const feed = container.querySelector('div') || container;
-  feed.innerHTML = activities.slice().reverse().map((a, idx) => {
+  feed.innerHTML = activities.slice().reverse().filter(a => a && a.msg).map((a, idx) => {
     const date = new Date(a.time);
-    const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const time = isNaN(date.getTime()) ? '' : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     return `<div class="activity-item"><span class="activity-time">${time}</span> ${a.msg}</div>`;
   }).join('');
 }
