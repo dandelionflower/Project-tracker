@@ -112,6 +112,8 @@ function resetTransientViewState() {
   expandedNotes.clear();
   selectedTaskIds.clear();
   dismissedAlertIds = new Set();
+  activityDateFilter = null;
+  activityCalOpen = false;
   document.getElementById('search-input').value = '';
   document.getElementById('sort-select').value = 'none';
   document.getElementById('overdue-only').checked = false;
@@ -140,6 +142,7 @@ function switchToProject(id) {
   render();
   renderGanttChart();
   renderActivityFeed();
+  renderActivityCalendarPicker();
   if (typeof checkDueSoon === 'function') checkDueSoon();
 }
 
@@ -611,6 +614,120 @@ function renderGanttChart() {
 
 const CRUD_BADGE_LABEL = { create: 'CREATE', update: 'UPDATE', delete: 'DELETE', info: 'INFO' };
 
+// --- Activity log calendar browsing -----------------------------------------
+let activityCalOpen = false;
+let activityCalYear = new Date().getFullYear();
+let activityCalMonth = new Date().getMonth(); // 0-indexed
+// null = no filter (show latest 30, as before).
+// { type: 'day', value: 'YYYY-MM-DD' } or { type: 'month', value: 'YYYY-MM' }
+let activityDateFilter = null;
+
+// Local (not UTC) YYYY-MM-DD for an activity's timestamp, since that's how
+// people think about "which day did this happen on".
+function activityDateKey(act) {
+  if (!act.timestamp) return null;
+  const d = new Date(act.timestamp);
+  if (isNaN(d.getTime())) return null;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function activityMatchesFilter(act) {
+  if (!activityDateFilter) return true;
+  const key = activityDateKey(act);
+  if (!key) return false;
+  if (activityDateFilter.type === 'day') return key === activityDateFilter.value;
+  if (activityDateFilter.type === 'month') return key.slice(0, 7) === activityDateFilter.value;
+  return true;
+}
+
+function formatFilterLabel() {
+  if (!activityDateFilter) return '';
+  const [y, m, d] = activityDateFilter.value.split('-').map(Number);
+  if (activityDateFilter.type === 'day') {
+    return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function renderActivityCalendarPicker() {
+  const picker = document.getElementById('activity-cal-picker');
+  if (!picker) return;
+  picker.style.display = activityCalOpen ? 'block' : 'none';
+  document.getElementById('activity-cal-toggle-btn').classList.toggle('open', activityCalOpen);
+  if (!activityCalOpen) return;
+
+  const firstOfMonth = new Date(activityCalYear, activityCalMonth, 1);
+  const startOffset = firstOfMonth.getDay();
+  const daysInMonth = new Date(activityCalYear, activityCalMonth + 1, 0).getDate();
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+  const monthLabel = firstOfMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthKey = `${activityCalYear}-${String(activityCalMonth + 1).padStart(2, '0')}`;
+
+  // Which days in this month actually have at least one logged activity.
+  const daysWithActivity = new Set(
+    activities.map(activityDateKey).filter(k => k && k.slice(0, 7) === monthKey)
+  );
+
+  let cells = '';
+  for (let cell = 0; cell < totalCells; cell++) {
+    const dayNum = cell - startOffset + 1;
+    // Let JS Date normalize month/year rollover for us (e.g. day 32 of
+    // December correctly becomes Jan 1 of the next year) instead of
+    // hand-rolling the month/year math, which is easy to get wrong at
+    // year boundaries.
+    const cellDate = new Date(activityCalYear, activityCalMonth, dayNum);
+    const otherMonth = cellDate.getMonth() !== activityCalMonth;
+    const dateStr = `${cellDate.getFullYear()}-${String(cellDate.getMonth() + 1).padStart(2, '0')}-${String(cellDate.getDate()).padStart(2, '0')}`;
+    const has = daysWithActivity.has(dateStr);
+    const selected = activityDateFilter && activityDateFilter.type === 'day' && activityDateFilter.value === dateStr;
+    cells += `<div class="activity-cal-day ${otherMonth ? 'other-month' : ''} ${has ? 'has-activity' : ''} ${selected ? 'selected' : ''}" data-date="${dateStr}">${cellDate.getDate()}</div>`;
+  }
+
+  picker.innerHTML = `
+    <div class="activity-cal-header">
+      <button id="activity-cal-prev" aria-label="Previous month">&lsaquo;</button>
+      <span class="activity-cal-month-label">${monthLabel}</span>
+      <button id="activity-cal-next" aria-label="Next month">&rsaquo;</button>
+    </div>
+    <div class="activity-cal-grid">
+      ${['S','M','T','W','T','F','S'].map(d => `<div class="activity-cal-weekday">${d}</div>`).join('')}
+      ${cells}
+    </div>
+    <button class="activity-cal-month-link" id="activity-cal-month-link">Show all of ${monthLabel}</button>
+  `;
+
+  document.getElementById('activity-cal-prev').addEventListener('click', () => {
+    activityCalMonth--;
+    if (activityCalMonth < 0) { activityCalMonth = 11; activityCalYear--; }
+    renderActivityCalendarPicker();
+  });
+  document.getElementById('activity-cal-next').addEventListener('click', () => {
+    activityCalMonth++;
+    if (activityCalMonth > 11) { activityCalMonth = 0; activityCalYear++; }
+    renderActivityCalendarPicker();
+  });
+  document.getElementById('activity-cal-month-link').addEventListener('click', () => {
+    activityDateFilter = { type: 'month', value: monthKey };
+    renderActivityFeed();
+    renderActivityCalendarPicker();
+  });
+  picker.querySelectorAll('.activity-cal-day').forEach(cell => {
+    cell.addEventListener('click', () => {
+      activityDateFilter = { type: 'day', value: cell.dataset.date };
+      renderActivityFeed();
+      renderActivityCalendarPicker();
+    });
+  });
+}
+
+document.getElementById('activity-cal-toggle-btn').addEventListener('click', () => {
+  activityCalOpen = !activityCalOpen;
+  renderActivityCalendarPicker();
+});
+
 function formatActivityDateTime(act) {
   // Older entries (logged before date+time display existed) only ever had
   // `time`, not a full `timestamp` — fall back gracefully if it's missing
@@ -627,12 +744,32 @@ function renderActivityFeed() {
   if (!feedEl) return;
   feedEl.innerHTML = '';
 
-  if (!activities.length) {
-    feedEl.innerHTML = '<p style="padding: 12px; color: var(--ink-faint); font-size: 14px;">No activity yet.</p>';
+  const filtered = activityDateFilter ? activities.filter(activityMatchesFilter) : activities.slice(0, 30);
+
+  if (activityDateFilter) {
+    const chip = document.createElement('div');
+    chip.className = 'activity-filter-chip';
+    chip.innerHTML = `<span>Showing: ${formatFilterLabel()}</span>`;
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = 'Show latest ✕';
+    clearBtn.addEventListener('click', () => {
+      activityDateFilter = null;
+      renderActivityFeed();
+      renderActivityCalendarPicker();
+    });
+    chip.appendChild(clearBtn);
+    feedEl.appendChild(chip);
+  }
+
+  if (!filtered.length) {
+    const empty = document.createElement('p');
+    empty.style.cssText = 'padding: 12px; color: var(--ink-faint); font-size: 14px;';
+    empty.textContent = activityDateFilter ? 'No activity on this date.' : 'No activity yet.';
+    feedEl.appendChild(empty);
     return;
   }
 
-  activities.slice(0, 30).forEach(act => {
+  filtered.forEach(act => {
     const type = act.type || inferCrudType(act.message);
 
     const item = document.createElement('div');
